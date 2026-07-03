@@ -104,6 +104,26 @@ python scripts/pipeline.py          # injects data/dashboard.json into template.
 npx serve docs                      # or: npx serve .  and open /template.html (fetch fallback for dev)
 ```
 
+## Post-subscription runbook (day one of Platinum)
+
+The trial tier is a **rolling two-year window for every symbol**, and its delisted
+database contains only within-window deaths — so day one of Platinum requires a
+full data rebuild, in this order:
+
+1. Let NDU re-sync completely (US Equities + Delisted grow to full 1990→ depth; allow up to an hour or two).
+2. `python scripts/norgate_smoke_test.py` — the AAPL window should now start decades back, not 2024.
+3. Rebuild BOTH universes (full-database membership scans take materially longer than the trial's ~6 minutes):
+   `python scripts/build_universe_fallback.py` (S&P 500 — expect roughly 1,200+ names, was 542) and
+   `python scripts/build_universe_fallback.py --index-name "Nasdaq 100" --out data/cache/ndx100_current_past_symbols.txt` (expect several hundred, was 125). Both counts are expectations, not verified figures.
+4. **Phase 1**: `python scripts/backtest_baseline.py --provider norgate --symbols-file data/cache/sp500_current_past_symbols.txt --refresh-cache` → compare against ~25,000 trades / 56.81% winners.
+5. **Phase 2b data pass**: `python scripts/backtest_weekly.py --provider norgate --refresh-cache`, then evaluation strictly per `PHASE2_DESIGN.md` (design segment first).
+6. **Phase 3b replication**: `python scripts/backtest_daily_limit.py --provider norgate --refresh-cache` → compare against 19.17% p.a. / −22.55% MaxDD / ~13.9% usage.
+7. `python scripts/pipeline.py`, commit, push — the dashboard picks up refreshed data (full-history panels to be added at that point).
+
+Every engine now hard-fails on a stale trial-depth cache (`assert_cache_depth` in
+`scripts/providers.py`): if you see "Cache depth mismatch", rebuild the universes
+and add `--refresh-cache` — that error existing is the point.
+
 ## Roadmap
 
 - **Phase 0 (trial window)** — DONE 2026-07-03. Plumbing and engine validation on the Norgate trial window.
@@ -127,6 +147,7 @@ Kept as a **separate repo** (different universe, data vendor, cadence), with thr
 - **2026-07-03 (evening)** — Norgate US Stocks trial activated (window 2024-07-03 → 2026-07-02; NDU 4.2.2.65). Known quirk on this install: every watchlist resolves with zero members (HTTP 200, Record-Count 0) despite activation, forced update and restart — worked around with `scripts/build_universe_fallback.py`, which reconstructs "S&P 500 Current & Past" from point-in-time membership scans (542 names on the trial window; re-run after subscribing). Phase 0 baseline ran clean end-to-end: 2,302 trades (2025-05-12 → 2026-07-01; first entry consistent with the 210-bar warm-up), 54.6% winners, avg win +3.19% vs avg loss −3.15%, profit factor 1.22, 29 delisting/series-end exits realised, 0 symbol failures. **Plumbing gate PASSED; performance judgement deferred to Phase 1 (full history) per project discipline. Platinum subscribe/decline decision due by trial end, 2026-07-24.**
 - **2026-07-03 (late)** — **Phase 2a complete.** Weekly variant **pre-registered before full-history data exists** (`PHASE2_DESIGN.md`: v1 rules, registered alternates, 2000-2017 design / 2018→ validation protocol mirroring the vendor's live boundary, decision gates). Portfolio engine built (`scripts/backtest_weekly.py`: weekly decisions, daily gap-aware stop/target monitoring with stop-first convention, low-volatility ranking, regime gate, next-open sensitivity mode) with 12 mechanics tests — 23 passing in total. Mechanics validation on the trial universe exercised every exit path cleanly (29 trades: 22 target / 6 stop / 1 gap-stop; 10/10 slots; 0 failures — MECHANICS ONLY, no evidential weight). Discovery: Norgate ships **precomputed S&P 500 breadth series** (`#SPX%MA200`, advance/decline, new highs/lows) — registered as a regime-gate alternate and flagged as a data-layer upgrade for breadth-thrust-etf. Next actions: Platinum decision by 2026-07-24 → Phase 1 anchor replication, then Phase 2b design-segment evaluation per protocol.
 - **2026-07-03 (Phase 3a)** — **Daily limit variant (Nasdaq 100) pre-registered and mechanically validated**, same discipline as Phase 2a. Source: CrackingMarkets "Buying Short-Term Dips in Stocks [backtester]" (2025-01-27) — fully disclosed rules, so Phase 3b is a *replication* with stated fill conventions (`PHASE3_DESIGN.md`: one-day limit orders at close − 0.9×ATR(5), fill = min(open, limit) when touched; trailing +0.5×ATR(5) target from the day after entry; close-above-previous-high; 10-day time stop; **no stop-loss**; high-NATR ranking — the opposite direction to Phase 2, as published). Engine `scripts/backtest_daily_limit.py` + 15 mechanics tests (38 passing repo-wide). NDX PIT universe: 125 current-and-past names on the trial window (universe builder now index-parameterised; membership caches are index-specific by directory). Mechanics run clean: 93 trades, all four exit paths exercised, 578 orders expired unfilled — the limit discipline behind the published ~13.9% capital usage — 0 failures. MECHANICS ONLY. Replication anchors for 3b: 19.17% p.a. / −22.55% MaxDD / ~13.9% usage (1994→2025).
+- **2026-07-03 (phase gate)** — Post-subscription entry gate built: `assert_cache_depth` guard in both portfolio engines (+ `--refresh-cache` flags) hard-fails any full-history run against a warm trial-depth cache — the silent-wrong-data landmine a subscription upgrade would otherwise create; 5 guard tests (43 passing repo-wide); post-subscription runbook added above. Recommendation upgraded: **subscribe to Platinum now rather than by 2026-07-24** — the trial has proven everything a 2-year window can prove, and a second vault workstream is now blocked on the same purchase.
 - **2026-07-03 (dashboard)** — Mechanics-view dashboard shipped: `template.html` (19.6KB) + `scripts/pipeline.py` → `docs/index.html` (46.9KB), styled per `C:\dev\design.md` (PCC DNA verbatim). Amber MECHANICS-ONLY banner wired to the live window length; equity curve vs rebased $SPXTR, capital usage, trade-return bars, full trade log with exit-reason chips, open-position chips, Phase 0 and published-family reference cards (clearly labelled as the source's own statistics), roadmap with gate states. Verified in local preview: zero console errors, all charts mounted, tokens applied. **GitHub Pages publication deliberately deferred** until the public/private remote decision (open issue 5) — the dashboard runs locally via `npx serve docs`.
 
 ## Open issues

@@ -150,6 +150,27 @@ class YFinanceProvider:
         return pd.Series(1, index=prices.index, dtype="int64")
 
 
+def assert_cache_depth(fresh_start, cached_start, tolerance_days: int = 365) -> None:
+    """Refuse to run when the local price cache is shallower than the data the
+    provider now serves — the exact failure mode of upgrading the Norgate
+    trial (2-year window) to a paid subscription (1990→) while the 2-year
+    CSV cache is still warm. A silent pass here would produce trial-depth
+    results labelled as full history.
+    """
+    if fresh_start is None or cached_start is None:
+        return
+    fresh_start = pd.Timestamp(fresh_start)
+    cached_start = pd.Timestamp(cached_start)
+    if fresh_start < cached_start - pd.Timedelta(days=tolerance_days):
+        raise RuntimeError(
+            f"Cache depth mismatch: the provider now serves history from "
+            f"{fresh_start.date()} but the cache starts {cached_start.date()}. "
+            "The cache predates a subscription upgrade. Rebuild the universe "
+            "files (scripts/build_universe_fallback.py for each index) and "
+            "re-run with --refresh-cache."
+        )
+
+
 def get_provider(name: str, **kwargs):
     name = name.lower()
     if name == "norgate":

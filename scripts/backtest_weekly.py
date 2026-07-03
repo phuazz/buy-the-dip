@@ -363,6 +363,8 @@ def main(argv=None) -> int:
     ap.add_argument("--time-stop-weeks", type=int, default=None)
     ap.add_argument("--max-symbols", type=int, default=None)
     ap.add_argument("--cache-dir", default="data/cache/norgate_totalreturn")
+    ap.add_argument("--refresh-cache", action="store_true",
+                    help="Refetch all symbols (required once after a subscription upgrade)")
     ap.add_argument("--out-prefix", default="weekly")
     args = ap.parse_args(argv)
 
@@ -392,7 +394,7 @@ def main(argv=None) -> int:
     failed = []
     for k, sym in enumerate(symbols, 1):
         try:
-            prices, member = _load_symbol(provider, sym, cache_dir, refresh=False)
+            prices, member = _load_symbol(provider, sym, cache_dir, refresh=args.refresh_cache)
             if len(prices):
                 panels[sym] = prices
                 memberships[sym] = member
@@ -401,6 +403,11 @@ def main(argv=None) -> int:
         if k % 100 == 0:
             print(f"  ... loaded {k}/{len(symbols)}")
     print(f"Loaded {len(panels)} symbols ({len(failed)} failed)")
+
+    from scripts.providers import assert_cache_depth  # noqa: E402
+    if panels:
+        assert_cache_depth(index_daily.index[0],
+                           min(df.index[0] for df in panels.values()))
 
     p = WeeklyParams(entry_at=args.entry_at, cost_bps_side=args.cost_bps_side,
                      time_stop_weeks=args.time_stop_weeks)

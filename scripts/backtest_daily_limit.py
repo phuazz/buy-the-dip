@@ -242,6 +242,8 @@ def main(argv=None) -> int:
     ap.add_argument("--max-symbols", type=int, default=None)
     ap.add_argument("--cache-dir", default="data/cache/norgate_totalreturn_ndx100",
                     help="Kept separate from the S&P 500 cache: membership files are index-specific")
+    ap.add_argument("--refresh-cache", action="store_true",
+                    help="Refetch all symbols (required once after a subscription upgrade)")
     ap.add_argument("--out-prefix", default="daily_limit")
     args = ap.parse_args(argv)
 
@@ -272,7 +274,7 @@ def main(argv=None) -> int:
     failed = []
     for k, sym in enumerate(symbols, 1):
         try:
-            prices, member = _load_symbol(provider, sym, cache_dir, refresh=False)
+            prices, member = _load_symbol(provider, sym, cache_dir, refresh=args.refresh_cache)
             if len(prices):
                 panels[sym] = prices
                 memberships[sym] = member
@@ -281,6 +283,11 @@ def main(argv=None) -> int:
         if k % 50 == 0:
             print(f"  ... loaded {k}/{len(symbols)}")
     print(f"Loaded {len(panels)} symbols ({len(failed)} failed)")
+
+    from scripts.providers import assert_cache_depth  # noqa: E402
+    if panels:
+        assert_cache_depth(index_daily.index[0],
+                           min(df.index[0] for df in panels.values()))
 
     p = DailyLimitParams(cost_bps_side=args.cost_bps_side, natr_min_pct=args.natr_min_pct,
                          drop_pct=args.drop_pct, entry_atr_mult=args.entry_atr_mult,
