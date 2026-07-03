@@ -1,6 +1,6 @@
 # buy-the-dip
 
-Stock-level dip-buying on the S&P 500 with a survivorship-bias-free, point-in-time universe. Reconstruction and extension of the CrackingMarkets "Buy the Dip" strategy family (daily research baseline + weekly live model). **Personal research artefact** — not investment advice.
+Stock-level dip-buying on the S&P 500 with a survivorship-bias-free, point-in-time universe. Reconstruction and extension of the CrackingMarkets "Buy the Dip" strategy family (daily research baseline + weekly live model). **Personal research artefact** — not investment advice. **Live dashboard**: [phuazz.github.io/buy-the-dip](https://phuazz.github.io/buy-the-dip/) (mechanics-only view until Phase 1/2b run on full history).
 
 ## Source material
 
@@ -130,7 +130,7 @@ Kept as a **separate repo** (different universe, data vendor, cadence), with thr
 2. Adjustment basis of the published backtest is undisclosed (assumed total-return). Sensitivity run required before filing results.
 3. Weekly regime filter and dip trigger must be designed, not copied — treat as new-signal work under the house backtesting principles (entry-point discipline, realistic costs, walk-forward).
 4. Low-volatility ranking (live model) vs high-ATR edge (research note) — resolve empirically in Phase 2.
-5. GitHub remote not yet created — decide public vs private. Recommendation: **private** (proprietary-adjacent strategy reconstruction + licensed-data workflows), with only the eventual dashboard JSON public if Phase 4 proceeds.
+5. ~~GitHub remote not yet created — decide public vs private.~~ **Resolved 2026-07-03 by owner decision: PUBLIC** at [github.com/phuazz/buy-the-dip](https://github.com/phuazz/buy-the-dip), dashboard on GitHub Pages. Boundary maintained: licensed raw data stays out of git (`data/cache/` ignored); committed artefacts are derived analytics only (trade lists, equity curves, summaries). The baseline rules published here come from CrackingMarkets' free public article; the weekly variant rules are this project's own pre-registered design.
 6. NDU watchlist endpoint returns zero members for every watchlist on this install (HTTP 200, Record-Count 0; NDU 4.2.2.65, trial). Fallback universe builder covers it; a support note to Norgate is worth sending. Re-test after any NDU upgrade and after subscribing.
 7. Trial-window trade rate ran ~2x the anchor's 24.7-year average (~2,020/year vs ~1,012/year) — plausibly the 2025 volatility regime (dip clusters), but verify the per-year trade-rate profile against the anchor once full history is available in Phase 1.
 
