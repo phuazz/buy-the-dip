@@ -16,27 +16,38 @@ complete Current & Past list. Re-run after subscribing.
 
 from __future__ import annotations
 
+import argparse
 import time
 from pathlib import Path
 
 import norgatedata
 
-OUT = Path(__file__).resolve().parents[1] / "data" / "cache" / "sp500_current_past_symbols.txt"
+ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_OUT = "data/cache/sp500_current_past_symbols.txt"
 
 
 def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("--index-name", default="S&P 500",
+                    help="Norgate index name for constituency checks (e.g. 'Nasdaq 100')")
+    ap.add_argument("--out", default=DEFAULT_OUT,
+                    help="Output path (repo-relative) for the symbol list")
+    args = ap.parse_args()
+    out = ROOT / args.out
+
     if not norgatedata.status():
         print("FAIL: NDU is not running.")
         return 1
     syms = list(norgatedata.database_symbols("US Equities"))
     syms += list(norgatedata.database_symbols("US Equities Delisted"))
-    print(f"{len(syms)} candidate symbols (US Equities + US Equities Delisted)")
+    print(f"{len(syms)} candidate symbols (US Equities + US Equities Delisted) "
+          f"vs index {args.index_name!r}")
     members = []
     t0 = time.time()
     for k, s in enumerate(syms, 1):
         try:
             df = norgatedata.index_constituent_timeseries(
-                s, "S&P 500", timeseriesformat="pandas-dataframe"
+                s, args.index_name, timeseriesformat="pandas-dataframe"
             )
             if df is not None and len(df) and int(df[df.columns[0]].sum()) > 0:
                 members.append(s)
@@ -44,9 +55,9 @@ def main() -> int:
             pass  # non-equity instruments and oddities: never members
         if k % 1000 == 0:
             print(f"  {k}/{len(syms)} scanned, {len(members)} members, {time.time() - t0:.0f}s elapsed")
-    OUT.parent.mkdir(parents=True, exist_ok=True)
-    OUT.write_text("\n".join(sorted(members)) + "\n", encoding="utf-8")
-    print(f"DONE: {len(members)} members in {time.time() - t0:.0f}s -> {OUT}")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text("\n".join(sorted(members)) + "\n", encoding="utf-8")
+    print(f"DONE: {len(members)} members in {time.time() - t0:.0f}s -> {out}")
     return 0
 
 
