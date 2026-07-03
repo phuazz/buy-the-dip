@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Buy the Dip — S&amp;P 500 stock-level mean reversion</title>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+<style>
+:root {
+  /* surfaces */
+  --bg: #fafaf8;        /* page background — warm off-white */
+  --bg2: #ffffff;       /* cards, raised surfaces */
+  --bg3: #f5f5f0;       /* table headers, inset chips */
+  --bg4: #eeeee8;       /* progress tracks, deep insets */
+  --bg-hover: #f0f0ea;  /* row / cell hover */
+  /* borders */
+  --bd: #e2e0d8;        /* default hairline */
+  --bd2: #d5d3ca;       /* medium */
+  --bd-strong: #c0beb5; /* emphasis / axis lines */
+  /* text */
+  --t1: #1a1a18;        /* primary — near-black */
+  --t2: #5c5c56;        /* secondary */
+  --t3: #8a8a82;        /* tertiary / labels */
+  --t4: #b0b0a8;        /* disabled / faint */
+  /* semantic: green = gain/long, red = loss/short */
+  --g: #1a8754;  --g2: #22a366;  --g-bg: rgba(26,135,84,0.07);  --g-bg2: rgba(26,135,84,0.14);
+  --r: #c0392b;  --r2: #e74c3c;  --r-bg: rgba(192,57,43,0.07);  --r-bg2: rgba(192,57,43,0.14);
+  /* accents: blue = neutral/benchmark, amber = caution, purple = cost, cyan = info, pink = alt */
+  --b: #2563eb;  --b2: #3b82f6;  --b-bg: rgba(37,99,235,0.06);  --b-bg2: rgba(37,99,235,0.12);
+  --a: #b45309;  --a-bg: rgba(180,83,9,0.07);
+  --p: #7c3aed;  --p-bg: rgba(124,58,237,0.06);
+  --c: #0891b2;  --c-bg: rgba(8,145,178,0.06);
+  --pk: #be185d; --pk-bg: rgba(190,24,93,0.06);
+  /* type */
+  --serif: 'Instrument Serif', Georgia, serif;
+  --sans: 'DM Sans', -apple-system, sans-serif;
+  --mono: 'JetBrains Mono', 'SF Mono', 'Menlo', monospace;
+  /* elevation */
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.04);
+  --shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+  --shadow-md: 0 4px 6px rgba(0,0,0,0.05), 0 2px 4px rgba(0,0,0,0.04);
+  --shadow-lg: 0 10px 15px rgba(0,0,0,0.06), 0 4px 6px rgba(0,0,0,0.04);
+  /* radius */
+  --radius: 8px;
+  --radius-lg: 12px;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:var(--bg); color:var(--t1); font-family:var(--sans); line-height:1.5; }
+.shell { max-width:1520px; margin:0 auto; padding:20px 32px 60px; }
+
+.masthead { padding:28px 0 22px; border-bottom:2px solid var(--t1); display:flex; justify-content:space-between; align-items:flex-end; flex-wrap:wrap; gap:12px; }
+.masthead-left h1 { font-family:var(--serif); font-size:32px; font-weight:400; letter-spacing:-0.5px; }
+.masthead-left h1 em { font-style:italic; color:var(--t3); }
+.masthead-sub { font-size:12px; color:var(--t3); margin-top:4px; }
+.pills { display:flex; gap:8px; flex-wrap:wrap; }
+.pill { font-size:11px; font-weight:600; letter-spacing:0.5px; padding:5px 12px; border-radius:999px; font-family:var(--mono); }
+.pill-date { background:var(--bg3); color:var(--t2); border:1px solid var(--bd2); }
+.pill-phase { background:var(--t1); color:#fff; border:1px solid var(--t1); }
+.pill-trial { background:var(--b-bg); color:var(--b); border:1px solid rgba(37,99,235,0.2); }
+
+.banner { margin:18px 0 0; padding:14px 18px; background:var(--a-bg); border:1px solid rgba(180,83,9,0.25); border-left:4px solid var(--a); border-radius:var(--radius); font-size:13px; color:var(--t1); }
+.banner b { color:var(--a); letter-spacing:0.5px; }
+.banner .mono { font-family:var(--mono); font-size:12px; }
+
+.kpi-strip { display:grid; grid-template-columns:repeat(6,1fr); gap:1px; background:var(--bd); border:1px solid var(--bd); border-radius:var(--radius-lg); overflow:hidden; margin-top:18px; }
+.kpi { background:var(--bg2); padding:14px 16px; }
+.kpi-label { font-size:11px; text-transform:uppercase; letter-spacing:0.8px; font-weight:600; color:var(--t3); }
+.kpi-val { font-size:24px; font-weight:700; letter-spacing:-0.5px; font-family:var(--mono); margin-top:2px; }
+.kpi-val.pos { color:var(--g); } .kpi-val.neg { color:var(--r); }
+.kpi-sub { font-size:10px; color:var(--t4); font-family:var(--mono); }
+
+.grid { display:grid; gap:16px; margin-top:16px; }
+.grid-main { grid-template-columns:2fr 1fr; }
+.grid-2 { grid-template-columns:1fr 1fr; }
+
+.card { background:var(--bg2); border:1px solid var(--bd); border-radius:var(--radius-lg); box-shadow:var(--shadow); overflow:hidden; }
+.card-head { padding:12px 16px; border-bottom:1px solid var(--bd); display:flex; justify-content:space-between; align-items:center; gap:8px; }
+.card-title { font-size:11px; text-transform:uppercase; letter-spacing:1px; font-weight:700; color:var(--t2); }
+.card-note { font-size:10px; color:var(--t4); font-family:var(--mono); }
+.card-body { padding:12px 16px 16px; }
+.chart { width:100%; }
+
+.chips { display:flex; flex-wrap:wrap; gap:6px; }
+.chip { font-family:var(--mono); font-size:12px; font-weight:600; padding:4px 10px; border-radius:6px; background:var(--bg3); border:1px solid var(--bd2); color:var(--t1); }
+
+.road { list-style:none; }
+.road li { display:flex; gap:10px; padding:7px 0; font-size:13px; align-items:baseline; }
+.road .st { font-family:var(--mono); font-size:10px; font-weight:700; padding:2px 8px; border-radius:999px; white-space:nowrap; }
+.st-done { background:var(--g-bg2); color:var(--g); }
+.st-gate { background:var(--a-bg); color:var(--a); border:1px solid rgba(180,83,9,0.2); }
+.road small { color:var(--t3); display:block; }
+
+table { width:100%; border-collapse:collapse; font-size:12.5px; }
+thead th { position:sticky; top:0; background:var(--bg3); text-transform:uppercase; font-size:10.5px; letter-spacing:0.8px; color:var(--t3); text-align:right; padding:8px 10px; border-bottom:2px solid var(--bd-strong); }
+thead th:first-child, td:first-child { text-align:left; }
+tbody td { padding:7px 10px; border-bottom:1px solid var(--bd); font-family:var(--mono); text-align:right; }
+tbody tr:hover { background:var(--bg-hover); }
+td.pos { color:var(--g); font-weight:600; } td.neg { color:var(--r); font-weight:600; }
+.reason { font-size:10px; font-weight:700; padding:2px 8px; border-radius:999px; letter-spacing:0.5px; }
+.reason.target { background:var(--g-bg2); color:var(--g); }
+.reason.stop, .reason.stop_gap { background:var(--r-bg2); color:var(--r); }
+.reason.delist { background:var(--a-bg); color:var(--a); }
+.reason.time { background:var(--b-bg2); color:var(--b); }
+.tbl-wrap { max-height:420px; overflow:auto; }
+
+dl.stats { display:grid; grid-template-columns:auto auto; row-gap:6px; column-gap:18px; font-size:13px; }
+dl.stats dt { color:var(--t3); }
+dl.stats dd { font-family:var(--mono); text-align:right; font-weight:600; }
+.src { font-size:10.5px; color:var(--t4); margin-top:10px; font-style:italic; }
+
+.footer { margin-top:28px; padding-top:14px; border-top:1px solid var(--bd); font-size:11px; color:var(--t3); display:flex; justify-content:space-between; flex-wrap:wrap; gap:8px; }
+.footer .mono { font-family:var(--mono); }
+.load-error { padding:30px; text-align:center; color:var(--r); font-size:14px; display:none; }
+
+@media (max-width:1200px){ .grid-main{grid-template-columns:1fr;} .kpi-strip{grid-template-columns:repeat(3,1fr);} }
+@media (max-width:768px){ .grid-2{grid-template-columns:1fr;} .kpi-strip{grid-template-columns:repeat(2,1fr);} .shell{padding:12px 14px 40px;} }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <div class="masthead">
+    <div class="masthead-left">
+      <h1>Buy the Dip — <em>stock-level S&amp;P 500 mean reversion</em></h1>
+      <div class="masthead-sub">Point-in-time universe with delisted securities (Norgate) · weekly decisions, daily risk monitoring · personal research artefact, not investment advice</div>
+    </div>
+    <div class="pills">
+      <span class="pill pill-trial" id="pill-window">trial window</span>
+      <span class="pill pill-date" id="pill-asof">as of —</span>
+      <span class="pill pill-phase">PHASE 2a</span>
+    </div>
+  </div>
+
+  <div class="banner">
+    <b>MECHANICS-ONLY VALIDATION.</b> Every figure below comes from the <span class="mono" id="banner-years">~2-year</span> Norgate trial window — one market regime, no evidential weight for the strategy. Rules and evaluation protocol were pre-registered in <span class="mono">PHASE2_DESIGN.md</span> before full-history data exists. Phase 1 (full-history anchor replication) and Phase 2b (design-segment evaluation) are gated on the Platinum decision due <span class="mono">2026-07-24</span>.
+  </div>
+
+  <div class="kpi-strip" id="kpis"></div>
+
+  <div class="grid grid-main">
+    <div class="card">
+      <div class="card-head">
+        <span class="card-title">Equity curve — weekly variant v1</span>
+        <span class="card-note" id="eq-note">US$100,000 start · 7 bps/side · vs $SPXTR rebased</span>
+      </div>
+      <div class="card-body"><div id="chart-equity" class="chart" style="height:360px"></div></div>
+    </div>
+    <div>
+      <div class="card">
+        <div class="card-head"><span class="card-title">Open positions</span><span class="card-note" id="open-note"></span></div>
+        <div class="card-body"><div class="chips" id="open-positions"></div></div>
+      </div>
+      <div class="card" style="margin-top:16px">
+        <div class="card-head"><span class="card-title">Roadmap</span></div>
+        <div class="card-body">
+          <ul class="road">
+            <li><span class="st st-done">DONE</span><span>Phase 0 — plumbing on trial window<small>2,302 baseline trades · 29 delisting exits · 0 failures</small></span></li>
+            <li><span class="st st-done">DONE</span><span>Phase 2a — pre-registration + engine<small>23 tests · mechanics run clean</small></span></li>
+            <li><span class="st st-gate">GATED</span><span>Phase 1 — full-history anchor replication<small>needs Platinum · anchor ≈25,000 trades / 56.81% win</small></span></li>
+            <li><span class="st st-gate">GATED</span><span>Phase 2b — design-segment evaluation<small>2000-2017 design · 2018→ validation · per protocol</small></span></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid grid-2">
+    <div class="card">
+      <div class="card-head"><span class="card-title">Capital usage</span><span class="card-note">invested % of equity, daily</span></div>
+      <div class="card-body"><div id="chart-usage" class="chart" style="height:220px"></div></div>
+    </div>
+    <div class="card">
+      <div class="card-head"><span class="card-title">Closed trades — net return</span><span class="card-note">by exit date · green gain / red loss</span></div>
+      <div class="card-body"><div id="chart-trades" class="chart" style="height:220px"></div></div>
+    </div>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <div class="card-head"><span class="card-title">Trade log</span><span class="card-note" id="trades-note"></span></div>
+      <div class="tbl-wrap"><table id="trades-table">
+        <thead><tr><th>Symbol</th><th>Entry</th><th>Exit</th><th>Entry px</th><th>Exit px</th><th>Bars</th><th>Return</th><th>Exit</th></tr></thead>
+        <tbody></tbody>
+      </table></div>
+    </div>
+  </div>
+
+  <div class="grid grid-2">
+    <div class="card">
+      <div class="card-head"><span class="card-title">Phase 0 — daily baseline plumbing run</span><span class="card-note">published rules verbatim · no costs</span></div>
+      <div class="card-body">
+        <dl class="stats" id="baseline-stats"></dl>
+        <div class="src">Engine acceptance anchor (full history, theirs): ~25,000 trades, 56.81% winners over 2000 → 2024-09. Comparison is only meaningful after Phase 1.</div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-head"><span class="card-title">Published family — reference only</span><span class="card-note">their stats, their full history</span></div>
+      <div class="card-body">
+        <dl class="stats" id="family-stats"></dl>
+        <div class="src" id="family-src"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="load-error" id="load-error">Could not load dashboard data. Run <span class="mono">python scripts/pipeline.py</span> or serve the repo root so <span class="mono">data/dashboard.json</span> is reachable.</div>
+
+  <div class="footer">
+    <span>Provider: Norgate Data (NDU, total-return adjusted) · universe: S&amp;P 500 current &amp; past (point-in-time membership) · derived data only, no licensed raw data published</span>
+    <span class="mono" id="built"></span>
+  </div>
+</div>
+
+<script id="dashboard-data" type="application/json">{}</script>
+<script>
+const CHART_LAYOUT = {
+  paper_bgcolor: 'transparent',
+  plot_bgcolor: '#fafaf8',
+  font: { family: 'DM Sans', size: 10, color: '#5c5c56' },
+  margin: { t: 10, b: 10, l: 10, r: 10 },
+  xaxis: {
+    gridcolor: '#eeeee8', linecolor: '#d5d3ca', linewidth: 1, showgrid: false,
+    tickformat: "%b '%y", dtick: 'M2', tickfont: { size: 9 }
+  },
+  yaxis: {
+    gridcolor: '#f0f0ea', linecolor: '#d5d3ca', linewidth: 1, showgrid: true, gridwidth: 1,
+    side: 'right',
+    tickfont: { size: 9, family: 'JetBrains Mono' }
+  },
+  showlegend: true,
+  legend: { x: 0, y: 1.02, orientation: 'h', font: { size: 9 }, bgcolor: 'transparent' },
+  hovermode: 'x unified',
+  hoverlabel: { bgcolor: '#fff', bordercolor: '#d5d3ca', font: { size: 10, family: 'DM Sans' } }
+};
+const CONFIG = { displayModeBar: false, responsive: true };
+const fmt$ = v => '$' + Number(v).toLocaleString('en-US', { maximumFractionDigits: 0 });
+const fmtPct = (v, dp = 2) => (v > 0 ? '+' : '') + Number(v).toFixed(dp) + '%';
+
+async function loadData() {
+  try {
+    const inline = JSON.parse(document.getElementById('dashboard-data').textContent);
+    if (inline && inline.as_of) return inline;
+  } catch (e) { /* fall through to fetch (dev mode) */ }
+  const r = await fetch('data/dashboard.json');
+  if (!r.ok) throw new Error('fetch failed: ' + r.status);
+  return r.json();
+}
+
+function kpis(w) {
+  const items = [
+    ['Final equity', fmt$(w.final_equity), '', w.final_equity >= w.params.initial_capital ? 'pos' : 'neg'],
+    ['ROR p.a.', fmtPct(w.ror_pct_pa), '', w.ror_pct_pa >= 0 ? 'pos' : 'neg'],
+    ['Sharpe', Number(w.sharpe).toFixed(2), 'daily marks', ''],
+    ['Max drawdown', fmtPct(w.max_dd_pct), 'daily', 'neg'],
+    ['Win rate', Number(w.win_rate_pct).toFixed(1) + '%', w.n_trades + ' closed trades', ''],
+    ['Avg usage', Number(w.avg_usage_pct).toFixed(1) + '%', 'mechanics window', ''],
+  ];
+  document.getElementById('kpis').innerHTML = items.map(([l, v, s, c]) =>
+    `<div class="kpi"><div class="kpi-label">${l}</div><div class="kpi-val ${c}">${v}</div><div class="kpi-sub">${s}</div></div>`).join('');
+}
+
+function equityChart(d) {
+  const e = d.equity;
+  const traces = [{
+    x: e.dates, y: e.equity, name: 'Strategy (v1, mechanics)', mode: 'lines',
+    line: { color: '#1a1a18', width: 2 },
+    hovertemplate: '%{y:$,.0f}<extra>Strategy</extra>'
+  }];
+  if (e.benchmark) traces.push({
+    x: e.dates, y: e.benchmark, name: '$SPXTR (rebased)', mode: 'lines',
+    line: { color: '#2563eb', width: 1.4, dash: 'dot' },
+    hovertemplate: '%{y:$,.0f}<extra>$SPXTR</extra>'
+  });
+  const last = e.equity[e.equity.length - 1];
+  const up = last >= e.equity[0];
+  const layout = Object.assign({}, CHART_LAYOUT, {
+    yaxis: Object.assign({}, CHART_LAYOUT.yaxis, { tickformat: '$,.0f' }),
+    annotations: [{
+      x: 1.0, xref: 'paper', y: last, yref: 'y', text: fmt$(last),
+      showarrow: false, xanchor: 'left', xshift: 4,
+      font: { family: 'JetBrains Mono', size: 9, color: '#fff' },
+      bgcolor: up ? '#1a8754' : '#c0392b', borderpad: 3
+    }]
+  });
+  Plotly.newPlot('chart-equity', traces, layout, CONFIG);
+}
+
+function usageChart(d) {
+  const e = d.equity;
+  const layout = Object.assign({}, CHART_LAYOUT, {
+    showlegend: false,
+    yaxis: Object.assign({}, CHART_LAYOUT.yaxis, { range: [0, 105], ticksuffix: '%' })
+  });
+  Plotly.newPlot('chart-usage', [{
+    x: e.dates, y: e.invested_pct, mode: 'lines', name: 'Invested %',
+    line: { color: '#2563eb', width: 1.4 },
+    fill: 'tozeroy', fillcolor: 'rgba(37,99,235,0.06)',
+    hovertemplate: '%{y:.1f}%<extra>Invested</extra>'
+  }], layout, CONFIG);
+}
+
+function tradesChart(d) {
+  const t = d.trades;
+  const layout = Object.assign({}, CHART_LAYOUT, {
+    showlegend: false, hovermode: 'closest',
+    yaxis: Object.assign({}, CHART_LAYOUT.yaxis, { ticksuffix: '%' })
+  });
+  Plotly.newPlot('chart-trades', [{
+    x: t.map(r => r.exit_date), y: t.map(r => 100 * r.ret_net), type: 'bar',
+    marker: { color: t.map(r => r.ret_net > 0 ? '#1a8754' : '#c0392b') },
+    customdata: t.map(r => [r.symbol, r.exit_reason]),
+    hovertemplate: '<b>%{customdata[0]}</b> %{y:.1f}% · %{customdata[1]}<extra></extra>'
+  }], layout, CONFIG);
+}
+
+function tradesTable(d) {
+  const rows = d.trades.map(r => `<tr>
+    <td><b>${r.symbol}</b></td><td>${r.entry_date}</td><td>${r.exit_date}</td>
+    <td>${Number(r.entry_px).toFixed(2)}</td><td>${Number(r.exit_px).toFixed(2)}</td>
+    <td>${r.bars_held}</td>
+    <td class="${r.ret_net > 0 ? 'pos' : 'neg'}">${fmtPct(100 * r.ret_net)}</td>
+    <td><span class="reason ${r.exit_reason}">${r.exit_reason.replace('_', ' ').toUpperCase()}</span></td>
+  </tr>`).join('');
+  document.querySelector('#trades-table tbody').innerHTML = rows;
+  document.getElementById('trades-note').textContent =
+    d.trades.length + ' closed trades · ' + d.weekly.open_positions_at_end.length + ' open';
+}
+
+function dl(el, pairs) {
+  document.getElementById(el).innerHTML =
+    pairs.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('');
+}
+
+function render(d) {
+  const w = d.weekly, b = d.baseline, f = d.published_family;
+  document.getElementById('pill-asof').textContent = 'as of ' + d.as_of;
+  document.getElementById('pill-window').textContent = w.window;
+  document.getElementById('banner-years').textContent = w.window_years + '-year';
+  document.getElementById('built').textContent = 'built ' + d.built + ' · pipeline.py';
+  kpis(w);
+  equityChart(d); usageChart(d); tradesChart(d); tradesTable(d);
+  document.getElementById('open-positions').innerHTML =
+    w.open_positions_at_end.map(s => `<span class="chip">${s}</span>`).join('');
+  document.getElementById('open-note').textContent = w.open_positions_at_end.length + ' / ' + w.params.max_positions + ' slots';
+  dl('baseline-stats', [
+    ['Window', b.first_entry + ' → ' + b.last_entry],
+    ['Trades', b.n_trades.toLocaleString()],
+    ['Win rate', b.win_rate_pct + '%'],
+    ['Avg win / loss', fmtPct(b.avg_win_pct) + ' / ' + fmtPct(b.avg_loss_pct)],
+    ['Expectancy / trade', fmtPct(b.expectancy_pct)],
+    ['Profit factor', b.profit_factor],
+    ['Delisting exits', b.delisted_or_series_end_exits],
+    ['Symbols traded', b.symbols_traded],
+  ]);
+  dl('family-stats', [
+    ['ROR p.a.', fmtPct(f.ror_pct_pa)],
+    ['Max drawdown', fmtPct(f.max_dd_pct)],
+    ['Trades since 2000', f.n_trades],
+    ['Win rate', f.win_rate_pct + '%'],
+    ['Avg win / loss', fmtPct(f.avg_win_pct) + ' / ' + fmtPct(f.avg_loss_pct)],
+    ['Profit factor', f.profit_factor],
+    ['Sharpe', f.sharpe],
+    ['Avg usage', f.avg_usage_pct + '%'],
+  ]);
+  document.getElementById('family-src').textContent = f.source + ' — quoted verbatim; these are the source model’s own full-history statistics, not results of this project.';
+}
+
+loadData().then(render).catch(err => {
+  console.error(err);
+  document.getElementById('load-error').style.display = 'block';
+});
+</script>
+</body>
+</html>

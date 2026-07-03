@@ -96,6 +96,9 @@ python scripts/backtest_baseline.py --provider norgate            # trial: auto-
 python scripts/build_universe_fallback.py
 python scripts/backtest_baseline.py --provider norgate --symbols-file data/cache/sp500_current_past_symbols.txt
 pytest tests/
+# Dashboard — rebuild after any backtest run:
+python scripts/pipeline.py          # injects data/dashboard.json into template.html -> docs/index.html
+npx serve docs                      # or: npx serve .  and open /template.html (fetch fallback for dev)
 ```
 
 ## Roadmap
@@ -119,6 +122,7 @@ Kept as a **separate repo** (different universe, data vendor, cadence), with thr
 - **2026-07-03** — Project initialised. Spec extracted from the three source PDFs; Norgate trial terms and pricing verified; provider abstraction, indicators, Phase 0/1 engine and tests written.
 - **2026-07-03 (evening)** — Norgate US Stocks trial activated (window 2024-07-03 → 2026-07-02; NDU 4.2.2.65). Known quirk on this install: every watchlist resolves with zero members (HTTP 200, Record-Count 0) despite activation, forced update and restart — worked around with `scripts/build_universe_fallback.py`, which reconstructs "S&P 500 Current & Past" from point-in-time membership scans (542 names on the trial window; re-run after subscribing). Phase 0 baseline ran clean end-to-end: 2,302 trades (2025-05-12 → 2026-07-01; first entry consistent with the 210-bar warm-up), 54.6% winners, avg win +3.19% vs avg loss −3.15%, profit factor 1.22, 29 delisting/series-end exits realised, 0 symbol failures. **Plumbing gate PASSED; performance judgement deferred to Phase 1 (full history) per project discipline. Platinum subscribe/decline decision due by trial end, 2026-07-24.**
 - **2026-07-03 (late)** — **Phase 2a complete.** Weekly variant **pre-registered before full-history data exists** (`PHASE2_DESIGN.md`: v1 rules, registered alternates, 2000-2017 design / 2018→ validation protocol mirroring the vendor's live boundary, decision gates). Portfolio engine built (`scripts/backtest_weekly.py`: weekly decisions, daily gap-aware stop/target monitoring with stop-first convention, low-volatility ranking, regime gate, next-open sensitivity mode) with 12 mechanics tests — 23 passing in total. Mechanics validation on the trial universe exercised every exit path cleanly (29 trades: 22 target / 6 stop / 1 gap-stop; 10/10 slots; 0 failures — MECHANICS ONLY, no evidential weight). Discovery: Norgate ships **precomputed S&P 500 breadth series** (`#SPX%MA200`, advance/decline, new highs/lows) — registered as a regime-gate alternate and flagged as a data-layer upgrade for breadth-thrust-etf. Next actions: Platinum decision by 2026-07-24 → Phase 1 anchor replication, then Phase 2b design-segment evaluation per protocol.
+- **2026-07-03 (dashboard)** — Mechanics-view dashboard shipped: `template.html` (19.6KB) + `scripts/pipeline.py` → `docs/index.html` (46.9KB), styled per `C:\dev\design.md` (PCC DNA verbatim). Amber MECHANICS-ONLY banner wired to the live window length; equity curve vs rebased $SPXTR, capital usage, trade-return bars, full trade log with exit-reason chips, open-position chips, Phase 0 and published-family reference cards (clearly labelled as the source's own statistics), roadmap with gate states. Verified in local preview: zero console errors, all charts mounted, tokens applied. **GitHub Pages publication deliberately deferred** until the public/private remote decision (open issue 5) — the dashboard runs locally via `npx serve docs`.
 
 ## Open issues
 
