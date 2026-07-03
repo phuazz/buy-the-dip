@@ -92,6 +92,9 @@ python -m pip install -r requirements.txt
 # after Norgate trial + NDU installed and running:
 python scripts/norgate_smoke_test.py
 python scripts/backtest_baseline.py --provider norgate            # trial: auto-detects ~2y window
+# If watchlists return zero members on your NDU install (known quirk):
+python scripts/build_universe_fallback.py
+python scripts/backtest_baseline.py --provider norgate --symbols-file data/cache/sp500_current_past_symbols.txt
 pytest tests/
 ```
 
@@ -113,7 +116,8 @@ Kept as a **separate repo** (different universe, data vendor, cadence), with thr
 
 ## Status
 
-- **2026-07-03** — Project initialised. Spec extracted from the three source PDFs; Norgate trial terms and pricing verified; provider abstraction, indicators, Phase 0/1 engine and tests written. **Awaiting: Norgate trial registration + NDU install (user action), then `norgate_smoke_test.py`.**
+- **2026-07-03** — Project initialised. Spec extracted from the three source PDFs; Norgate trial terms and pricing verified; provider abstraction, indicators, Phase 0/1 engine and tests written.
+- **2026-07-03 (evening)** — Norgate US Stocks trial activated (window 2024-07-03 → 2026-07-02; NDU 4.2.2.65). Known quirk on this install: every watchlist resolves with zero members (HTTP 200, Record-Count 0) despite activation, forced update and restart — worked around with `scripts/build_universe_fallback.py`, which reconstructs "S&P 500 Current & Past" from point-in-time membership scans (542 names on the trial window; re-run after subscribing). Phase 0 baseline ran clean end-to-end: 2,302 trades (2025-05-12 → 2026-07-01; first entry consistent with the 210-bar warm-up), 54.6% winners, avg win +3.19% vs avg loss −3.15%, profit factor 1.22, 29 delisting/series-end exits realised, 0 symbol failures. **Plumbing gate PASSED; performance judgement deferred to Phase 1 (full history) per project discipline. Platinum subscribe/decline decision due by trial end, 2026-07-24.**
 
 ## Open issues
 
@@ -122,5 +126,7 @@ Kept as a **separate repo** (different universe, data vendor, cadence), with thr
 3. Weekly regime filter and dip trigger must be designed, not copied — treat as new-signal work under the house backtesting principles (entry-point discipline, realistic costs, walk-forward).
 4. Low-volatility ranking (live model) vs high-ATR edge (research note) — resolve empirically in Phase 2.
 5. GitHub remote not yet created — decide public vs private. Recommendation: **private** (proprietary-adjacent strategy reconstruction + licensed-data workflows), with only the eventual dashboard JSON public if Phase 4 proceeds.
+6. NDU watchlist endpoint returns zero members for every watchlist on this install (HTTP 200, Record-Count 0; NDU 4.2.2.65, trial). Fallback universe builder covers it; a support note to Norgate is worth sending. Re-test after any NDU upgrade and after subscribing.
+7. Trial-window trade rate ran ~2x the anchor's 24.7-year average (~2,020/year vs ~1,012/year) — plausibly the 2025 volatility regime (dip clusters), but verify the per-year trade-rate profile against the anchor once full history is available in Phase 1.
 
 *Last updated: 2026-07-03*

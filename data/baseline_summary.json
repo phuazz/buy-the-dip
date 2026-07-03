@@ -1,0 +1,28 @@
+{
+  "eval_start": "2000-01-01",
+  "n_trades": 2302,
+  "first_entry": "2025-05-12",
+  "last_entry": "2026-07-01",
+  "win_rate_pct": 54.6,
+  "avg_win_pct": 3.194,
+  "avg_loss_pct": -3.152,
+  "expectancy_pct": 0.313,
+  "median_ret_pct": 0.387,
+  "profit_factor": 1.219,
+  "total_pnl_usd": 7208.33,
+  "delisted_or_series_end_exits": 29,
+  "symbols_traded": 410,
+  "params": {
+    "rsi_period": 5,
+    "rsi_threshold": 20.0,
+    "trend_sma": 200,
+    "hold_bars": 5,
+    "per_trade_usd": 1000.0,
+    "min_history": 210,
+    "commission_bps": 0.0
+  },
+  "provider": "NorgateProvider(watchlist='S&P 500 Current & Past', index='S&P 500', adjustment=TOTALRETURN, start=1998-01-01) [results-grade]",
+  "symbols_total": 542,
+  "symbols_no_data_in_window": 0,
+  "symbols_failed": 0
+}

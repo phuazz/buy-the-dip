@@ -131,8 +131,10 @@ ANCHORS = {"n_trades": "~25,000 (2000 -> 2024-09)", "win_rate_pct": "56.81"}
 
 
 def run(provider, p: BaselineParams, eval_start: str, cache_dir: Path | None,
-        max_symbols: int | None = None, refresh_cache: bool = False) -> tuple:
-    symbols = provider.universe_symbols()
+        max_symbols: int | None = None, refresh_cache: bool = False,
+        symbols: list | None = None) -> tuple:
+    if symbols is None:
+        symbols = provider.universe_symbols()
     if max_symbols:
         symbols = symbols[:max_symbols]
     print(f"Provider : {provider.describe()}")
@@ -204,6 +206,9 @@ def main(argv=None) -> int:
     ap.add_argument("--rsi-threshold", type=float, default=20.0)
     ap.add_argument("--hold-bars", type=int, default=5)
     ap.add_argument("--commission-bps", type=float, default=0.0)
+    ap.add_argument("--symbols-file", default=None,
+                    help="Path to a newline-delimited symbol list overriding the "
+                         "provider universe (see scripts/build_universe_fallback.py)")
     ap.add_argument("--max-symbols", type=int, default=None, help="Debug: truncate universe")
     ap.add_argument("--cache-dir", default="data/cache/norgate_totalreturn")
     ap.add_argument("--no-cache", action="store_true")
@@ -227,9 +232,15 @@ def main(argv=None) -> int:
         commission_bps=args.commission_bps,
     )
     cache_dir = None if args.no_cache else (root / args.cache_dir)
+    symbols = None
+    if args.symbols_file:
+        symbols = [s.strip() for s in Path(args.symbols_file).read_text(encoding="utf-8").splitlines()
+                   if s.strip()]
+        print(f"Universe override: {len(symbols)} symbols from {args.symbols_file}")
     trades, summary = run(provider, p, args.eval_start, cache_dir,
                           max_symbols=args.max_symbols,
-                          refresh_cache=args.refresh_cache)
+                          refresh_cache=args.refresh_cache,
+                          symbols=symbols)
 
     out_dir = root / "data"
     out_dir.mkdir(exist_ok=True)
