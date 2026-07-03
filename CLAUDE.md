@@ -17,6 +17,13 @@ Layers on top of `C:\dev\CLAUDE.md`. Only divergences and hard rules specific to
 - RSI is Wilder-smoothed. If a result is sensitive to the RSI variant, run the SMA/Cutler variant explicitly and report both.
 - Delisted names: with padding NONE the series simply ends; an open trade exits at the final print with `exit_reason='delisted_or_series_end'`. Do not filter these trades out — they are the point of the exercise.
 
+## Session model guidance
+
+- **Fable 5** for the research spine: engine and backtest correctness, pre-registration design, Phase 1/2b/3b evaluation and replication judgement, robustness reviews — anywhere an error is silent and expensive.
+- **Opus 4.8, fast mode on** for mechanical work: `template.html` patches per `C:\dev\design.md`, pipeline tweaks, rebuild-commit-push cycles, cosmetic dashboard changes.
+- Once the post-subscription refresh runbook has run clean twice under supervision, demote it to a scripted operator prompt on a cheaper tier (Sonnet/Haiku), PCC-style.
+- Swap models at commit boundaries, not mid-edit. Within a Fable session, mechanical sub-tasks can instead be delegated to lower-tier subagents without switching the session.
+
 ## Dashboard (Phase 4, later)
 
 - Style per `C:\dev\design.md`; architecture template.html + `scripts/pipeline.py` → `docs/index.html`.
