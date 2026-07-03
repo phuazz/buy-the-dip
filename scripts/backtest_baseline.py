@@ -1,0 +1,252 @@
+"""Phase 0/1 — published-baseline replication backtest.
+
+Rules (verbatim from the CrackingMarkets "Buy the dip" article, 2024-09-19):
+    Universe : S&P 500 members, point-in-time (historical constituents)
+    Trend    : Close > 200-day simple moving average
+    Dip      : RSI(5) < 20                [smoothing assumed Wilder]
+    Entry    : at the close of the signal bar
+    Exit     : at the close 5 trading bars later
+    Sizing   : $1,000 notional per trade, overlapping trades allowed
+    Costs    : none (the published baseline excludes fees)
+
+Published anchors to validate against (2000 -> 2024-09):
+    ~25,000 trades, 56.81% winners, average win > average loss.
+
+Silent-failure defences implemented here:
+    1. Point-in-time membership gate on the signal day (no survivorship);
+       positions may persist past index removal, matching the source's
+       "stocks that are no longer part of the S&P 500" language.
+    2. Exit alignment is positional on each symbol's own bar index — month
+       boundaries, year boundaries, holidays, halts and delistings cannot
+       shift exits. A series ending before bar t+5 exits on its final bar
+       (exit_reason='delisted_or_series_end') so delisting losses are
+       realised, not dropped.
+    3. Signals inside the indicator warm-up window are discarded
+       (min_history); trend and dip are computed on the same adjusted close
+       series that is traded.
+
+Note on the entry convention: signal and fill share the same close, exactly
+as published. This is optimistic for live execution (the signal is only
+knowable at that close); Phase 2 tests next-open entry sensitivity.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from dataclasses import asdict, dataclass
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from scripts import indicators  # noqa: E402
+
+
+@dataclass
+class BaselineParams:
+    rsi_period: int = 5
+    rsi_threshold: float = 20.0
+    trend_sma: int = 200
+    hold_bars: int = 5
+    per_trade_usd: float = 1000.0
+    min_history: int = 210          # bars before the first actionable signal
+    commission_bps: float = 0.0     # one-way; applied at entry and exit
+
+
+def compute_signals(prices: pd.DataFrame, membership: pd.Series, p: BaselineParams) -> pd.Series:
+    """Boolean signal series on the symbol's own bar index."""
+    close = prices["Close"]
+    trend_ok = close > indicators.sma(close, p.trend_sma)
+    dip = indicators.wilder_rsi(close, p.rsi_period) < p.rsi_threshold
+    member = membership.reindex(close.index).fillna(0).astype(bool)
+    warm = pd.Series(np.arange(len(close)) >= p.min_history, index=close.index)
+    return trend_ok & dip & member & warm
+
+
+def symbol_trades(symbol: str, prices: pd.DataFrame, membership: pd.Series,
+                  p: BaselineParams) -> list:
+    """All baseline trades for one symbol. Positional exits (see module doc)."""
+    if len(prices) == 0:
+        return []
+    close = prices["Close"]
+    sig = compute_signals(prices, membership, p)
+    n = len(close)
+    trades = []
+    cost = 2.0 * p.commission_bps / 1e4
+    for i in np.flatnonzero(sig.to_numpy()):
+        j = min(i + p.hold_bars, n - 1)
+        if j <= i:
+            continue  # signal on the final bar of the series: nothing tradable
+        entry = float(close.iloc[i])
+        exit_ = float(close.iloc[j])
+        if not (entry > 0.0):
+            continue
+        ret = exit_ / entry - 1.0 - cost
+        trades.append({
+            "symbol": symbol,
+            "entry_date": close.index[i].date().isoformat(),
+            "exit_date": close.index[j].date().isoformat(),
+            "entry_close": entry,
+            "exit_close": exit_,
+            "bars_held": int(j - i),
+            "ret": ret,
+            "pnl_usd": p.per_trade_usd * ret,
+            "exit_reason": "time" if j == i + p.hold_bars else "delisted_or_series_end",
+        })
+    return trades
+
+
+def summarise(trades: pd.DataFrame, eval_start: str) -> dict:
+    """Summary statistics over trades entered on/after eval_start."""
+    if len(trades) == 0:
+        return {"n_trades": 0, "note": "no trades"}
+    t = trades[trades["entry_date"] >= eval_start]
+    if len(t) == 0:
+        return {"n_trades": 0, "note": f"no trades on/after {eval_start}"}
+    wins = t[t["ret"] > 0]
+    losses = t[t["ret"] <= 0]
+    gross_win = wins["ret"].sum()
+    gross_loss = -losses["ret"].sum()
+    return {
+        "eval_start": eval_start,
+        "n_trades": int(len(t)),
+        "first_entry": t["entry_date"].min(),
+        "last_entry": t["entry_date"].max(),
+        "win_rate_pct": round(100.0 * len(wins) / len(t), 2),
+        "avg_win_pct": round(100.0 * wins["ret"].mean(), 3) if len(wins) else None,
+        "avg_loss_pct": round(100.0 * losses["ret"].mean(), 3) if len(losses) else None,
+        "expectancy_pct": round(100.0 * t["ret"].mean(), 3),
+        "median_ret_pct": round(100.0 * t["ret"].median(), 3),
+        "profit_factor": round(gross_win / gross_loss, 3) if gross_loss > 0 else None,
+        "total_pnl_usd": round(t["pnl_usd"].sum(), 2),
+        "delisted_or_series_end_exits": int((t["exit_reason"] != "time").sum()),
+        "symbols_traded": int(t["symbol"].nunique()),
+    }
+
+
+ANCHORS = {"n_trades": "~25,000 (2000 -> 2024-09)", "win_rate_pct": "56.81"}
+
+
+def run(provider, p: BaselineParams, eval_start: str, cache_dir: Path | None,
+        max_symbols: int | None = None, refresh_cache: bool = False) -> tuple:
+    symbols = provider.universe_symbols()
+    if max_symbols:
+        symbols = symbols[:max_symbols]
+    print(f"Provider : {provider.describe()}")
+    print(f"Universe : {len(symbols)} symbols")
+    if not provider.results_grade:
+        print("!! PLUMBING-ONLY PROVIDER — output is survivorship-biased, not a result !!")
+
+    all_trades = []
+    skipped, failed = 0, []
+    for k, sym in enumerate(symbols, 1):
+        try:
+            prices, membership = _load_symbol(provider, sym, cache_dir, refresh_cache)
+            if len(prices) == 0:
+                skipped += 1
+                continue
+            all_trades.extend(symbol_trades(sym, prices, membership, p))
+        except Exception as exc:  # keep the sweep alive; report at the end
+            failed.append((sym, str(exc)[:120]))
+        if k % 50 == 0:
+            print(f"  ... {k}/{len(symbols)} symbols, {len(all_trades)} trades so far")
+
+    trades = pd.DataFrame(all_trades)
+    if len(trades):
+        trades = trades.sort_values(["entry_date", "symbol"]).reset_index(drop=True)
+    summary = summarise(trades, eval_start)
+    summary["params"] = asdict(p)
+    summary["provider"] = provider.describe()
+    summary["symbols_total"] = len(symbols)
+    summary["symbols_no_data_in_window"] = skipped
+    summary["symbols_failed"] = len(failed)
+    if failed:
+        summary["failed_examples"] = failed[:10]
+    return trades, summary
+
+
+def _cache_paths(cache_dir: Path, sym: str) -> tuple:
+    safe = sym.replace("/", "_").replace("\\", "_")
+    return cache_dir / f"{safe}.prices.csv", cache_dir / f"{safe}.member.csv"
+
+
+def _load_symbol(provider, sym: str, cache_dir: Path | None, refresh: bool) -> tuple:
+    if cache_dir is not None:
+        pp, mp = _cache_paths(cache_dir, sym)
+        if not refresh and pp.exists() and mp.exists():
+            prices = pd.read_csv(pp, index_col=0, parse_dates=True)
+            member = pd.read_csv(mp, index_col=0, parse_dates=True).iloc[:, 0]
+            return prices, member
+    prices = provider.price_history(sym)
+    member = provider.index_membership(sym)
+    if cache_dir is not None:
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        pp, mp = _cache_paths(cache_dir, sym)
+        prices.to_csv(pp)
+        member.rename("member").to_frame().to_csv(mp)
+    return prices, member
+
+
+def main(argv=None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("--provider", choices=["norgate", "yfinance"], default="norgate")
+    ap.add_argument("--watchlist", default="S&P 500 Current & Past")
+    ap.add_argument("--index-name", default="S&P 500")
+    ap.add_argument("--adjustment", default="TOTALRETURN",
+                    help="Norgate StockPriceAdjustmentType name (e.g. TOTALRETURN, CAPITAL)")
+    ap.add_argument("--fetch-start", default="1998-01-01",
+                    help="History fetch start (indicator warm-up runs from here)")
+    ap.add_argument("--eval-start", default="2000-01-01",
+                    help="Trades entered before this date are excluded from the summary")
+    ap.add_argument("--rsi-threshold", type=float, default=20.0)
+    ap.add_argument("--hold-bars", type=int, default=5)
+    ap.add_argument("--commission-bps", type=float, default=0.0)
+    ap.add_argument("--max-symbols", type=int, default=None, help="Debug: truncate universe")
+    ap.add_argument("--cache-dir", default="data/cache/norgate_totalreturn")
+    ap.add_argument("--no-cache", action="store_true")
+    ap.add_argument("--refresh-cache", action="store_true")
+    args = ap.parse_args(argv)
+
+    root = Path(__file__).resolve().parents[1]
+    from scripts.providers import get_provider  # noqa: E402
+
+    if args.provider == "norgate":
+        provider = get_provider(
+            "norgate", watchlist=args.watchlist, index_name=args.index_name,
+            adjustment=args.adjustment, start_date=args.fetch_start,
+        )
+    else:
+        provider = get_provider("yfinance", start_date=args.fetch_start)
+
+    p = BaselineParams(
+        rsi_threshold=args.rsi_threshold,
+        hold_bars=args.hold_bars,
+        commission_bps=args.commission_bps,
+    )
+    cache_dir = None if args.no_cache else (root / args.cache_dir)
+    trades, summary = run(provider, p, args.eval_start, cache_dir,
+                          max_symbols=args.max_symbols,
+                          refresh_cache=args.refresh_cache)
+
+    out_dir = root / "data"
+    out_dir.mkdir(exist_ok=True)
+    trades_path = out_dir / "baseline_trades.csv"
+    summary_path = out_dir / "baseline_summary.json"
+    trades.to_csv(trades_path, index=False)
+    summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
+
+    print("\n=== Baseline summary ===")
+    print(json.dumps(summary, indent=2))
+    print("\n=== Published anchors (full window 2000 -> 2024-09) ===")
+    for key, val in ANCHORS.items():
+        print(f"  {key}: {val}")
+    print("\nAnchor comparison is only meaningful on the FULL history (Platinum).")
+    print(f"Wrote {trades_path} and {summary_path}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

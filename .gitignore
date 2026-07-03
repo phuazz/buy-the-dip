@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+# Licensed raw data pulls — never committed (Norgate licence)
+data/cache/
+*.parquet
