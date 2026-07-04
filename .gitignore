@@ -5,3 +5,4 @@ __pycache__/
 # Licensed raw data pulls — never committed (Norgate licence)
 data/cache/
 *.parquet
+reviews/~$*

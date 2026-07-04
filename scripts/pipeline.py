@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 from datetime import date
 from pathlib import Path
 
@@ -91,6 +92,17 @@ def main() -> int:
     docs = ROOT / "docs"
     docs.mkdir(exist_ok=True)
     (docs / "index.html").write_text(out, encoding="utf-8")
+
+    # Static companion page: plain-language findings + its chart exhibits
+    # (source findings.html at the repo root; charts from reviews/assets).
+    shutil.copy2(ROOT / "findings.html", docs / "findings.html")
+    assets = docs / "assets"
+    assets.mkdir(exist_ok=True)
+    copied = 0
+    for png in sorted((ROOT / "reviews" / "assets").glob("*.png")):
+        shutil.copy2(png, assets / png.name)
+        copied += 1
+    print(f"docs/findings.html + {copied} chart assets copied")
 
     print(f"template.html : {len(tpl.encode('utf-8')):,} bytes")
     print(f"docs/index.html: {len(out.encode('utf-8')):,} bytes")

@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Buy the Dip — plain-language findings</title>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  /* surfaces */
+  --bg: #fafaf8;        /* page background — warm off-white */
+  --bg2: #ffffff;       /* cards, raised surfaces */
+  --bg3: #f5f5f0;       /* table headers, inset chips */
+  --bg4: #eeeee8;       /* progress tracks, deep insets */
+  --bg-hover: #f0f0ea;  /* row / cell hover */
+  /* borders */
+  --bd: #e2e0d8;        /* default hairline */
+  --bd2: #d5d3ca;       /* medium */
+  --bd-strong: #c0beb5; /* emphasis / axis lines */
+  /* text */
+  --t1: #1a1a18;        /* primary — near-black */
+  --t2: #5c5c56;        /* secondary */
+  --t3: #8a8a82;        /* tertiary / labels */
+  --t4: #b0b0a8;        /* disabled / faint */
+  /* semantic: green = gain/long, red = loss/short */
+  --g: #1a8754;  --g2: #22a366;  --g-bg: rgba(26,135,84,0.07);  --g-bg2: rgba(26,135,84,0.14);
+  --r: #c0392b;  --r2: #e74c3c;  --r-bg: rgba(192,57,43,0.07);  --r-bg2: rgba(192,57,43,0.14);
+  /* accents: blue = neutral/benchmark, amber = caution, purple = cost, cyan = info, pink = alt */
+  --b: #2563eb;  --b2: #3b82f6;  --b-bg: rgba(37,99,235,0.06);  --b-bg2: rgba(37,99,235,0.12);
+  --a: #b45309;  --a-bg: rgba(180,83,9,0.07);
+  --p: #7c3aed;  --p-bg: rgba(124,58,237,0.06);
+  --c: #0891b2;  --c-bg: rgba(8,145,178,0.06);
+  --pk: #be185d; --pk-bg: rgba(190,24,93,0.06);
+  /* type */
+  --serif: 'Instrument Serif', Georgia, serif;
+  --sans: 'DM Sans', -apple-system, sans-serif;
+  --mono: 'JetBrains Mono', 'SF Mono', 'Menlo', monospace;
+  /* elevation */
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.04);
+  --shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+  --shadow-md: 0 4px 6px rgba(0,0,0,0.05), 0 2px 4px rgba(0,0,0,0.04);
+  --shadow-lg: 0 10px 15px rgba(0,0,0,0.06), 0 4px 6px rgba(0,0,0,0.04);
+  /* radius */
+  --radius: 8px;
+  --radius-lg: 12px;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:var(--bg); color:var(--t1); font-family:var(--sans); font-size:15px; line-height:1.55; }
+.shell { max-width:900px; margin:0 auto; padding:20px 32px 60px; }
+
+.masthead { padding:28px 0 22px; border-bottom:2px solid var(--t1); display:flex; justify-content:space-between; align-items:flex-end; flex-wrap:wrap; gap:12px; }
+.masthead-left h1 { font-family:var(--serif); font-size:32px; font-weight:400; letter-spacing:-0.5px; }
+.masthead-left h1 em { font-style:italic; color:var(--t3); }
+.masthead-sub { margin-top:6px; font-size:12.5px; color:var(--t3); }
+.pills { display:flex; gap:8px; flex-wrap:wrap; }
+.pill { font-size:11px; font-weight:600; letter-spacing:0.6px; padding:5px 12px; border-radius:999px; text-decoration:none; }
+.pill-date { background:var(--bg3); color:var(--t2); border:1px solid var(--bd2); }
+.pill-link { background:var(--b-bg); color:var(--b); border:1px solid rgba(37,99,235,0.2); }
+.pill-link:hover { background:var(--b-bg2); }
+
+.callout { margin:26px 0 0; padding:18px 22px; background:var(--b-bg); border:1px solid rgba(37,99,235,0.18); border-left:4px solid var(--b); border-radius:var(--radius); font-size:16px; line-height:1.6; }
+
+.qa { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; margin-top:26px; }
+.qa-card { background:var(--bg2); border:1px solid var(--bd); border-radius:var(--radius-lg); box-shadow:var(--shadow-sm); padding:16px 18px; }
+.qa-card .label { font-size:11px; text-transform:uppercase; letter-spacing:0.9px; font-weight:700; color:var(--t3); margin-bottom:8px; }
+.qa-card p { font-size:13.5px; color:var(--t2); }
+.qa-card p b { color:var(--t1); }
+
+h2.claim { font-family:var(--serif); font-size:23px; font-weight:400; letter-spacing:-0.3px; margin:44px 0 10px; }
+h2.claim .num { font-family:var(--mono); font-size:13px; color:var(--t4); vertical-align:middle; margin-right:10px; }
+.finding p { color:var(--t2); max-width:820px; }
+.finding p b, .finding p .mono { color:var(--t1); }
+.mono { font-family:var(--mono); font-size:0.92em; }
+
+figure { margin:18px 0 0; background:var(--bg2); border:1px solid var(--bd); border-radius:var(--radius-lg); box-shadow:var(--shadow-sm); padding:14px; }
+figure img { width:100%; height:auto; display:block; border-radius:var(--radius); }
+figcaption { font-size:12.5px; color:var(--t3); font-style:italic; padding:10px 6px 2px; line-height:1.5; }
+
+.stat-strip { display:grid; grid-template-columns:repeat(4,1fr); gap:1px; background:var(--bd); border:1px solid var(--bd); border-radius:var(--radius-lg); overflow:hidden; margin-top:16px; }
+.stat { background:var(--bg2); padding:14px 16px; }
+.stat .k { font-size:11px; text-transform:uppercase; letter-spacing:0.8px; font-weight:600; color:var(--t3); }
+.stat .v { font-family:var(--mono); font-size:21px; font-weight:700; letter-spacing:-0.5px; margin-top:4px; }
+.stat .s { font-size:11.5px; color:var(--t3); margin-top:2px; }
+
+.takeaways { margin-top:16px; background:var(--bg2); border:1px solid var(--bd); border-radius:var(--radius-lg); box-shadow:var(--shadow-sm); padding:20px 24px; }
+.takeaways li { margin:8px 0 8px 18px; color:var(--t2); }
+.takeaways li b { color:var(--t1); }
+
+.next { margin-top:16px; }
+.next li { margin:7px 0 7px 18px; color:var(--t2); }
+.next li b { color:var(--t1); }
+
+.footer { margin-top:44px; padding-top:16px; border-top:1px solid var(--bd); font-size:11.5px; color:var(--t3); }
+.footer p { margin-bottom:8px; }
+.footer .disc { font-style:italic; }
+a { color:var(--b); }
+
+@media (max-width:768px){ .qa { grid-template-columns:1fr; } .stat-strip { grid-template-columns:repeat(2,1fr); } .shell { padding:12px 14px 40px; } .masthead-left h1 { font-size:26px; } }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <div class="masthead">
+    <div class="masthead-left">
+      <h1>Buy the Dip — <em>plain-language findings</em></h1>
+      <div class="masthead-sub">Why does our independent rebuild earn less than the published strategy page? · records to 2026-07-02 · personal research artefact, not investment advice</div>
+    </div>
+    <div class="pills">
+      <span class="pill pill-date">FINDINGS · 2026-07-04</span>
+      <a class="pill pill-link" href="index.html">FULL DASHBOARD →</a>
+    </div>
+  </div>
+
+  <div class="callout">
+    The published figure of about <b>11% a year</b> is an in-sample, optimistically-filled number; our lower figure of <b>6.9% a year</b> is the honest, fully-costed, out-of-sample one. Once both are put on the same rules over the same history, the difference is <b>disclosure — not a weaker signal</b>.
+  </div>
+
+  <div class="qa">
+    <div class="qa-card">
+      <div class="label">The question</div>
+      <p>We rebuilt a published S&amp;P 500 "buy the dip" strategy from scratch on clean, survivorship-bias-free data. Its public page shows about 11% a year; our own dashboard shows less. <b>Is our rebuild wrong, or is the published figure flattered?</b></p>
+    </div>
+    <div class="qa-card">
+      <div class="label">The answer</div>
+      <p><b>Neither the signal nor our engine is wrong.</b> Our headline is lower for three honest reasons: we measure out-of-sample, on data the rules never saw; we charge realistic costs and buy only when we genuinely have room; and we compound honestly where the page annualises on fixed capital. The weekly form failed the out-of-sample exam outright and has been shelved.</p>
+    </div>
+    <div class="qa-card">
+      <div class="label">How it was tested</div>
+      <p>Full survivorship-bias-free S&amp;P 500 history back to 2000 (the daily cousin to 1994), <b>delisted companies included</b>; every rule fixed in writing before the full data was bought; realistic costs of 7 basis points a side; and a <b>single locked out-of-sample exam, run once, with no retries</b>.</p>
+    </div>
+  </div>
+
+  <div class="finding">
+    <h2 class="claim"><span class="num">01</span>The engine is proven correct — it reproduces the vendor&rsquo;s own published trade count almost exactly</h2>
+    <p>Rebuilt from scratch on point-in-time data, it produced 25,603 trades at 57.0% winners against the vendor&rsquo;s published figure of about 25,000 at 56.8% — so any gap that follows is economics and honesty, not a coding error.</p>
+    <div class="stat-strip">
+      <div class="stat"><div class="k">Their published trades</div><div class="v">~25,000</div><div class="s">2000 → Sep 2024</div></div>
+      <div class="stat"><div class="k">Our rebuilt trades</div><div class="v">25,603</div><div class="s">same window, same rules</div></div>
+      <div class="stat"><div class="k">Their winners</div><div class="v">56.8%</div><div class="s">published</div></div>
+      <div class="stat"><div class="k">Our winners</div><div class="v">57.0%</div><div class="s">independent rebuild</div></div>
+    </div>
+  </div>
+
+  <div class="finding">
+    <h2 class="claim"><span class="num">02</span>The mechanism is real — buying panic pays</h2>
+    <p>Across the full history the per-trade signature reproduces cleanly — roughly 68 to 69% winners, about $1.90 of gross profit for every $1.00 of loss, and winners held only one to two days — exactly as the source describes.</p>
+  </div>
+
+  <div class="finding">
+    <h2 class="claim"><span class="num">03</span>The published headline is an in-sample number; ours is out-of-sample — and that is most of the gap</h2>
+    <p>The vendor&rsquo;s page is one continuous backtest whose settings were chosen with the whole history in view; ours splits the history and honestly reports the part the rules never saw. Our full-history headline is 6.9% a year against the page&rsquo;s 11.1%, and the strategy visibly weakens in that untouched 2018-onward exam — the win rate slips from about 56-62% to about 48-51%.</p>
+    <figure>
+      <img src="assets/weekly_chained_equity.png" alt="Chained equity curve of the reconstructed weekly strategy, 2000 to 2026, with the 2018-onward validation segment shaded">
+      <figcaption>Our reconstructed weekly strategy: $100,000 growing on a log scale. The rules were chosen on the left "design" stretch (2000-2017); the shaded band from 2018 is the single out-of-sample exam, run once. The line keeps rising — but not fast enough to clear the pass mark, as the next chart shows.</figcaption>
+    </figure>
+  </div>
+
+  <div class="finding">
+    <h2 class="claim"><span class="num">04</span>The weekly form failed the honest exam, so we are not deploying it</h2>
+    <p>Every weekly configuration fell below our pre-set pass mark once it met data it had never seen — even the "improved" versions that had matched or beaten the vendor beforehand (risk-adjusted return up to 1.10 against their 1.07). The tweaks that looked best did worst live, the classic fingerprint of fitting to the past, so by our own rule there is no second attempt.</p>
+    <figure>
+      <img src="assets/design_vs_validation.png" alt="Sharpe ratios of three weekly configurations on the design segment versus the validation segment; all fall below the 0.7 pass line">
+      <figcaption>Risk-adjusted return (return per unit of volatility; higher is better) for three weekly configurations, on the design stretch (left) versus the untouched exam (right). The green band is the pass zone (0.7 and above). All three start strong and fall below the line; the two "improved" versions (red, teal) fall furthest — they were fitted to the past.</figcaption>
+    </figure>
+  </div>
+
+  <div class="finding">
+    <h2 class="claim"><span class="num">05</span>Most of the remaining gap is participation and accounting, not skill</h2>
+    <p>On the strategy&rsquo;s daily cousin, our deployable rule buys only when a portfolio slot is genuinely free, so it keeps far less money at work than the vendor&rsquo;s version; put on the vendor&rsquo;s own fill convention, the rebuild&rsquo;s return rises from about 10% to about 15% a year — roughly 60% of the gap — with the rest explained by the vendor&rsquo;s fixed-capital arithmetic and undisclosed costs.</p>
+    <figure>
+      <img src="assets/dl_participation_gap.png" alt="Bar charts comparing CAGR and average capital usage under the free-slot and all-signals order conventions against the published anchors">
+      <figcaption>The daily cousin, on the source&rsquo;s own window. Left: growth rate per year. Right: the average share of capital actually invested. Our deployable "free-slot" rule (navy) keeps only about 7% of capital at work; adopting the vendor&rsquo;s "all-signals" fills (teal) lifts both bars most of the way to the published anchor (grey). The green band is the pre-agreed match tolerance.</figcaption>
+    </figure>
+  </div>
+
+  <div class="finding">
+    <h2 class="claim">What an allocator should take away</h2>
+    <div class="takeaways">
+      <ul>
+        <li><b>This is not a failed rebuild.</b> The engine is verified against the vendor&rsquo;s own trade count, and the money-making mechanism reproduces cleanly.</li>
+        <li>The published figure of about 11% a year is, in effect, an <b>in-sample, optimistically-filled, fixed-capital number</b>. The honest, deployable, out-of-sample version is lower — the difference is disclosure, not a broken signal.</li>
+        <li>The weekly form did not clear an honest out-of-sample bar and <b>has been shelved</b>. The daily cousin reproduces the mechanism and is the only candidate for any future deployment question — at small size, and only under a fresh, written pre-registration.</li>
+        <li>Every figure here is a <b>backtest</b> on clean, survivorship-bias-free data, not a live track record.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="finding">
+    <h2 class="claim">The work behind the findings</h2>
+    <p>Everything was pre-registered before the full data existed — the rules and the pass marks were written down first, so the data could not tempt us into keeping whatever happened to look good. Forty-five backtests were run; not one configuration was adopted to improve returns.</p>
+    <figure>
+      <img src="assets/scope_funnel.png" alt="Horizontal bar chart of backtest executions per phase: 45 in total, none taken forward">
+      <figcaption>Every backtest run in this evaluation, grouped by phase. Forty-five runs in all; not one configuration was adopted to improve returns. The single engine convention that was adopted was chosen to match the vendor&rsquo;s trade count, not to lift performance. The red bars touched the out-of-sample exam data and were each run exactly once, under owner approval.</figcaption>
+    </figure>
+  </div>
+
+  <div class="finding">
+    <h2 class="claim">Where this could still improve</h2>
+    <ul class="next">
+      <li><b>Exit design, under a fresh pre-registration.</b> The vendor&rsquo;s winners run about 121 trading days to our 95-107 — their undisclosed exits likely trail or scale out rather than take a fixed 15% target. That is the most concrete, mechanism-first hypothesis a successor weekly study could register.</li>
+      <li><b>A harder honesty bar for the daily cousin.</b> Its record is strong (risk-adjusted return above 1, drawdowns near a third of the index&rsquo;s, under 10% of capital at work) but rests on limit-order fills; the next step is a fill-realism and capacity study at actual trade sizes before any deployment conversation.</li>
+      <li><b>Portfolio fit, not headline return.</b> At under 10% capital usage the daily variant&rsquo;s natural role is a satellite that stacks on top of other books; measuring its overlap with the existing trend and breadth strategies is more valuable than tuning its dials.</li>
+      <li><b>One structural caution.</b> Both variants weakened after 2018 relative to before — consistent with a well-publicised edge becoming crowded. Any revival study should test that decay explicitly rather than assume the pre-2018 profile returns.</li>
+    </ul>
+  </div>
+
+  <div class="footer">
+    <p>Companion documents: the <a href="https://github.com/phuazz/buy-the-dip/blob/main/reviews/2026-07-04_phase1-2b-3b_full-history.docx">technical record</a> and <a href="https://github.com/phuazz/buy-the-dip/blob/main/reviews/2026-07-04_phase1-2b-3b_full-history_summary.docx">plain-language summary</a> (documents of record), the <a href="https://github.com/phuazz/buy-the-dip">repository</a> with every engine, test and derived data file, and the <a href="index.html">live dashboard</a>. Prepared 2026-07-04; every number traces to the filed record — no figures are introduced on this page.</p>
+    <p class="disc">Personal research artefact. Not investment advice. All statistics are backtested results on survivorship-bias-free point-in-time data with the stated cost and fill conventions; the published-source figures are quoted for comparison only and remain the source&rsquo;s own claims.</p>
+  </div>
+
+</div>
+</body>
+</html>
