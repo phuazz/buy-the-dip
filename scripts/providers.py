@@ -99,6 +99,20 @@ class NorgateProvider:
         )
         return _standardise(df)
 
+    def price_history_unadjusted(self, symbol: str) -> pd.DataFrame:
+        """Actual traded prices (no split/dividend back-adjustment). Absolute
+        price and dollar-volume screens must read this series: back-adjusted
+        prices shrink early history for the biggest compounders and would
+        wrongly exclude them."""
+        df = self._nd.price_timeseries(
+            symbol,
+            stock_price_adjustment_setting=self._nd.StockPriceAdjustmentType.NONE,
+            padding_setting=self._pad,
+            start_date=self.start_date,
+            timeseriesformat="pandas-dataframe",
+        )
+        return _standardise(df)
+
     def index_membership(self, symbol: str) -> pd.Series:
         df = self._nd.index_constituent_timeseries(
             symbol,
@@ -141,6 +155,10 @@ class YFinanceProvider:
 
     def price_history(self, symbol: str) -> pd.DataFrame:
         df = self._yf.Ticker(symbol).history(start=self.start_date, auto_adjust=True)
+        return _standardise(df)
+
+    def price_history_unadjusted(self, symbol: str) -> pd.DataFrame:
+        df = self._yf.Ticker(symbol).history(start=self.start_date, auto_adjust=False)
         return _standardise(df)
 
     def index_membership(self, symbol: str) -> pd.Series:

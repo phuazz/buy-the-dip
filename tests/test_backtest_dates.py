@@ -15,10 +15,11 @@ from scripts.backtest_baseline import BaselineParams, symbol_trades
 
 # Permissive params: rising series -> trend filter passes; rsi_threshold=101
 # -> the dip condition passes on every bar. Every bar after min_history
-# therefore signals, letting the tests assert pure alignment mechanics.
+# therefore signals, letting the tests assert pure alignment mechanics
+# (entry_overlap="per_signal" so each bar's entry is observable).
 PERMISSIVE = BaselineParams(
     rsi_period=2, rsi_threshold=101.0, trend_sma=2, hold_bars=5,
-    min_history=3, per_trade_usd=1000.0,
+    min_history=3, per_trade_usd=1000.0, entry_overlap="per_signal",
 )
 
 

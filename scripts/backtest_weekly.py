@@ -56,6 +56,18 @@ class WeeklyParams:
     initial_capital: float = 100_000.0
     min_weekly_history: int = 45
     min_cash_frac: float = 0.02
+    # -- registered alternates and full-history controls (v1 defaults) --
+    dip_trigger: str = "rsi"             # "rsi" | "lower_closes" | "below_high"
+    below_high_weeks: int = 8
+    below_high_min: float = -0.15        # band for "close 5-15% below the 8-week high"
+    below_high_max: float = -0.05
+    ranking: str = "low_vol"             # "low_vol" | "high_natr"
+    natr_rank_weeks: int = 5
+    regime_gate: str = "sma"             # "sma" | "breadth" (#SPX%MA200 > 50)
+    regime_off_exit: bool = False        # registered alternate: force-exit when gate OFF
+    monitor: str = "daily"               # "daily" | "weekly_close" (registered sensitivity)
+    price_filter_basis: str = "unadjusted"  # "$5"/dollar-volume screens read actual traded prices
+    sim_start: str | None = None         # no entries and no equity records before this date
 
 
 WEEKLY_AGG = {"Open": "first", "High": "max", "Low": "min", "Close": "last", "Volume": "sum"}
@@ -68,26 +80,61 @@ def build_weekly(daily: pd.DataFrame) -> pd.DataFrame:
     return w.dropna(subset=["Close"])
 
 
+def _price_filter_series(daily: pd.DataFrame, p, unadj: pd.DataFrame | None) -> tuple:
+    """(close, volume) the absolute price / dollar-volume screens must read.
+    Back-adjusted series shrink early-history prices for split-heavy
+    compounders (AAPL's total-return close in 2000 is around $0.11), so the
+    registered "$5" rule means the actual traded price."""
+    if p.price_filter_basis == "adjusted":
+        return daily["Close"], daily["Volume"]
+    if p.price_filter_basis != "unadjusted":
+        raise ValueError(f"Unknown price_filter_basis {p.price_filter_basis!r}")
+    if unadj is None:
+        if p.min_price > 0 or p.min_dollar_vol > 0:
+            raise ValueError(
+                "price_filter_basis='unadjusted' with an active price or "
+                "dollar-volume screen requires the unadjusted series"
+            )
+        return daily["Close"], daily["Volume"]
+    return unadj["Close"].reindex(daily.index), unadj["Volume"].reindex(daily.index)
+
+
 def precompute_symbol(daily: pd.DataFrame, membership_daily: pd.Series,
-                      p: WeeklyParams) -> pd.DataFrame:
+                      p: WeeklyParams, unadj: pd.DataFrame | None = None) -> pd.DataFrame:
     """Weekly frame + indicator/eligibility columns for one symbol."""
     w = build_weekly(daily)
     close = w["Close"]
     w["trend"] = close > indicators.sma(close, p.trend_weeks)
     w["rsi"] = indicators.wilder_rsi(close, p.rsi_weeks)
     w["vol"] = np.log(close).diff().rolling(p.rank_vol_weeks, min_periods=p.rank_vol_weeks).std()
+    w["natr_rank"] = indicators.natr(w["High"], w["Low"], close, p.natr_rank_weeks)
     member = membership_daily.reindex(daily.index).ffill().fillna(0)
     w["member"] = member.resample("W-FRI").last().reindex(w.index).fillna(0).astype(bool)
-    dollar_vol = (daily["Close"] * daily["Volume"]).rolling(
+    ref_close, ref_volume = _price_filter_series(daily, p, unadj)
+    price_ref = ref_close.resample("W-FRI").last().reindex(w.index)
+    dollar_vol = (ref_close * ref_volume).rolling(
         p.dollar_vol_days, min_periods=min(p.dollar_vol_days, 21)).median()
     w["dollar_vol"] = dollar_vol.resample("W-FRI").last().reindex(w.index)
     w["warm"] = np.arange(len(w)) >= p.min_weekly_history
+    if p.dip_trigger == "rsi":
+        dip = w["rsi"] < p.rsi_threshold
+    elif p.dip_trigger == "lower_closes":
+        down = close.diff() < 0
+        dip = down & down.shift(1, fill_value=False)
+    elif p.dip_trigger == "below_high":
+        # Convention: 8-week high of weekly CLOSES, window ending at the
+        # decision week (a new-high week can therefore never be a dip).
+        high = close.rolling(p.below_high_weeks, min_periods=p.below_high_weeks).max()
+        ratio = close / high - 1.0
+        dip = (ratio >= p.below_high_min) & (ratio <= p.below_high_max)
+    else:
+        raise ValueError(f"Unknown dip_trigger {p.dip_trigger!r}")
     w["candidate"] = (
         w["trend"]
-        & (w["rsi"] < p.rsi_threshold)
+        & dip
         & w["member"]
         & w["warm"]
-        & (close > p.min_price)
+        & (price_ref > p.min_price)
         & (w["dollar_vol"].fillna(0) > p.min_dollar_vol)
     )
     return w
@@ -126,20 +173,41 @@ def _close_position(pos: _Position, exit_px: float, exit_date: pd.Timestamp,
 
 
 def simulate(panels: dict, memberships: dict, index_daily: pd.DataFrame,
-             p: WeeklyParams) -> tuple:
+             p: WeeklyParams, unadj_panels: dict | None = None,
+             breadth_daily: pd.Series | None = None,
+             cash_yield_daily: pd.Series | None = None) -> tuple:
     """Run the weekly portfolio simulation.
 
-    panels      : {symbol: daily OHLCV DataFrame}
-    memberships : {symbol: daily 0/1 membership Series}
-    index_daily : daily OHLCV for the regime index ($SPX)
+    panels           : {symbol: daily OHLCV DataFrame}
+    memberships      : {symbol: daily 0/1 membership Series}
+    index_daily      : daily OHLCV for the regime index ($SPX)
+    unadj_panels     : {symbol: unadjusted OHLCV} for absolute price screens
+    breadth_daily    : precomputed breadth series (regime_gate="breadth")
+    cash_yield_daily : daily fractional cash accrual (registered alternate)
 
     Returns (trades DataFrame, equity DataFrame, summary dict).
     """
+    if p.ranking not in ("low_vol", "high_natr"):
+        raise ValueError(f"Unknown ranking {p.ranking!r}")
+    if p.monitor not in ("daily", "weekly_close"):
+        raise ValueError(f"Unknown monitor {p.monitor!r}")
     cost_side = p.cost_bps_side / 1e4
     calendar = index_daily.index
     index_weekly = build_weekly(index_daily)
-    regime = index_weekly["Close"] > indicators.sma(index_weekly["Close"], p.regime_sma_weeks)
+    if p.regime_gate == "breadth":
+        if breadth_daily is None:
+            raise ValueError("regime_gate='breadth' requires breadth_daily")
+        # Percent-above-MA breadth: gate ON while more than half the index
+        # closes above its own 200-day MA. Weeks before the series starts
+        # read NaN -> gate OFF (conservative).
+        breadth_weekly = breadth_daily.resample("W-FRI").last()
+        regime = (breadth_weekly > 50.0).reindex(index_weekly.index, fill_value=False)
+    elif p.regime_gate == "sma":
+        regime = index_weekly["Close"] > indicators.sma(index_weekly["Close"], p.regime_sma_weeks)
+    else:
+        raise ValueError(f"Unknown regime_gate {p.regime_gate!r}")
     labels = list(index_weekly.index)
+    sim_start = pd.Timestamp(p.sim_start) if p.sim_start else None
 
     weekly = {}
     daily_row = {}
@@ -147,7 +215,8 @@ def simulate(panels: dict, memberships: dict, index_daily: pd.DataFrame,
     for sym, df in panels.items():
         if len(df) == 0:
             continue
-        weekly[sym] = precompute_symbol(df, memberships[sym], p)
+        unadj = None if unadj_panels is None else unadj_panels.get(sym)
+        weekly[sym] = precompute_symbol(df, memberships[sym], p, unadj)
         daily_row[sym] = {ts: i for i, ts in enumerate(df.index)}
         last_bar[sym] = df.index[-1]
 
@@ -169,6 +238,8 @@ def simulate(panels: dict, memberships: dict, index_daily: pd.DataFrame,
 
         for d in week_days:
             last_day = d
+            if cash_yield_daily is not None and (sim_start is None or d >= sim_start):
+                cash *= 1.0 + float(cash_yield_daily.get(d, 0.0))
             # 1. Fill queued next-open entries whose symbol trades today.
             if pending:
                 still = []
@@ -220,7 +291,20 @@ def simulate(panels: dict, memberships: dict, index_daily: pd.DataFrame,
                 o, h, l, c = (float(row["Open"]), float(row["High"]),
                               float(row["Low"]), float(row["Close"]))
                 pos.bars_held += 1
-                if o <= pos.stop:
+                if p.monitor == "weekly_close":
+                    # Registered sensitivity: breaches are only observable at
+                    # the decision close; fills happen at that close.
+                    if d != week_days[-1]:
+                        marks[sym] = c
+                    elif c <= pos.stop:
+                        cash += _close_position(pos, c, d, "stop", cost_side, trades)
+                        del positions[sym]; marks.pop(sym, None)
+                    elif c >= pos.target:
+                        cash += _close_position(pos, c, d, "target", cost_side, trades)
+                        del positions[sym]; marks.pop(sym, None)
+                    else:
+                        marks[sym] = c
+                elif o <= pos.stop:
                     cash += _close_position(pos, o, d, "stop_gap", cost_side, trades)
                     del positions[sym]; marks.pop(sym, None)
                 elif l <= pos.stop:
@@ -232,10 +316,11 @@ def simulate(panels: dict, memberships: dict, index_daily: pd.DataFrame,
                 else:
                     marks[sym] = c
 
-            invested = sum(positions[s].shares * marks.get(s, positions[s].entry_px)
-                           for s in positions)
-            equity_rows.append({"date": d, "equity": cash + invested,
-                                "invested_frac": invested / (cash + invested)})
+            if sim_start is None or d >= sim_start:
+                invested = sum(positions[s].shares * marks.get(s, positions[s].entry_px)
+                               for s in positions)
+                equity_rows.append({"date": d, "equity": cash + invested,
+                                    "invested_frac": invested / (cash + invested)})
 
         if last_day is None:
             continue  # no trading days rolled up to this label
@@ -252,7 +337,18 @@ def simulate(panels: dict, memberships: dict, index_daily: pd.DataFrame,
                     del positions[sym]; marks.pop(sym, None)
 
         # 4. Weekly decision at this label's close: new entries if regime ON.
-        if not bool(regime.get(label, False)):
+        if sim_start is not None and label < sim_start:
+            continue
+        regime_on = bool(regime.get(label, False))
+        if p.regime_off_exit and not regime_on:
+            for sym in list(positions.keys()):
+                pos = positions[sym]
+                w = weekly.get(sym)
+                px = float(w["Close"].get(label, marks.get(sym, pos.entry_px))) \
+                    if w is not None else marks.get(sym, pos.entry_px)
+                cash += _close_position(pos, px, last_day, "regime_off", cost_side, trades)
+                del positions[sym]; marks.pop(sym, None)
+        if not regime_on:
             continue
         free = p.max_positions - len(positions) - len(pending)
         if free <= 0:
@@ -264,9 +360,11 @@ def simulate(panels: dict, memberships: dict, index_daily: pd.DataFrame,
             if label not in w.index:
                 continue
             row = w.loc[label]
-            if bool(row["candidate"]) and np.isfinite(row["vol"]):
-                candidates.append((float(row["vol"]), sym, float(row["Close"])))
-        candidates.sort()  # ascending volatility: low-vol preference
+            metric = float(row["vol"]) if p.ranking == "low_vol" else float(row["natr_rank"])
+            if bool(row["candidate"]) and np.isfinite(metric):
+                key = metric if p.ranking == "low_vol" else -metric
+                candidates.append((key, sym, float(row["Close"])))
+        candidates.sort()  # low_vol: ascending volatility; high_natr: descending NATR
         equity_now = cash + sum(positions[s].shares * marks.get(s, positions[s].entry_px)
                                 for s in positions)
         for vol, sym, close_px in candidates[:free]:
@@ -361,6 +459,31 @@ def main(argv=None) -> int:
     ap.add_argument("--entry-at", choices=["close", "next_open"], default="close")
     ap.add_argument("--cost-bps-side", type=float, default=7.0)
     ap.add_argument("--time-stop-weeks", type=int, default=None)
+    ap.add_argument("--rsi-threshold", type=float, default=25.0,
+                    help="Registered plateau: 20 / 25 / 30")
+    ap.add_argument("--target-frac", type=float, default=0.15,
+                    help="Profit target as a fraction (registered plateau: 0.10 / 0.15 / 0.20)")
+    ap.add_argument("--dip-trigger", choices=["rsi", "lower_closes", "below_high"],
+                    default="rsi")
+    ap.add_argument("--ranking", choices=["low_vol", "high_natr"], default="low_vol")
+    ap.add_argument("--regime-gate", choices=["sma", "breadth"], default="sma")
+    ap.add_argument("--breadth-symbol", default="#SPX%MA200",
+                    help="Norgate precomputed breadth series for --regime-gate breadth")
+    ap.add_argument("--regime-off-exit", action="store_true",
+                    help="Registered alternate: force-exit open positions when the gate is OFF")
+    ap.add_argument("--monitor", choices=["daily", "weekly_close"], default="daily",
+                    help="Registered sensitivity: stop/target monitoring convention")
+    ap.add_argument("--cash", choices=["none", "tbill"], default="none",
+                    help="Registered alternate: idle cash accrues at the T-bill rate")
+    ap.add_argument("--tbill-symbol", default="%IRX",
+                    help="Annualised percent yield series for --cash tbill "
+                         "(Norgate Economic database; 13-week T-bill rate, 1960->)")
+    ap.add_argument("--price-basis", choices=["unadjusted", "adjusted"], default="unadjusted",
+                    help="Series read by the $5 price and dollar-volume screens")
+    ap.add_argument("--sim-start", default=None,
+                    help="No entries or equity records before this date (design segment)")
+    ap.add_argument("--sim-end", default=None,
+                    help="Truncate all series at this date (design segment)")
     ap.add_argument("--max-symbols", type=int, default=None)
     ap.add_argument("--cache-dir", default="data/cache/norgate_totalreturn")
     ap.add_argument("--refresh-cache", action="store_true",
@@ -370,7 +493,7 @@ def main(argv=None) -> int:
 
     root = Path(__file__).resolve().parents[1]
     from scripts.providers import get_provider  # noqa: E402
-    from scripts.backtest_baseline import _load_symbol  # noqa: E402
+    from scripts.backtest_baseline import _load_symbol, _load_unadjusted  # noqa: E402
 
     provider = get_provider("norgate", adjustment=args.adjustment,
                             start_date=args.fetch_start) if args.provider == "norgate" \
@@ -390,12 +513,15 @@ def main(argv=None) -> int:
     print(f"Regime index {args.index_symbol}: {index_daily.index[0].date()} -> {index_daily.index[-1].date()}")
 
     cache_dir = root / args.cache_dir
-    panels, memberships = {}, {}
+    panels, memberships, unadj_panels = {}, {}, {}
     failed = []
     for k, sym in enumerate(symbols, 1):
         try:
             prices, member = _load_symbol(provider, sym, cache_dir, refresh=args.refresh_cache)
             if len(prices):
+                if args.price_basis == "unadjusted":
+                    unadj_panels[sym] = _load_unadjusted(provider, sym, cache_dir,
+                                                         refresh=args.refresh_cache)
                 panels[sym] = prices
                 memberships[sym] = member
         except Exception as exc:
@@ -409,11 +535,50 @@ def main(argv=None) -> int:
         assert_cache_depth(index_daily.index[0],
                            min(df.index[0] for df in panels.values()))
 
+    breadth_daily = None
+    if args.regime_gate == "breadth":
+        breadth = provider.price_history(args.breadth_symbol)
+        if len(breadth) == 0:
+            print(f"FAIL: no data for breadth symbol {args.breadth_symbol}")
+            return 1
+        print(f"Breadth {args.breadth_symbol}: "
+              f"{breadth.index[0].date()} -> {breadth.index[-1].date()}")
+        breadth_daily = breadth["Close"]
+
+    cash_yield_daily = None
+    if args.cash == "tbill":
+        tbill = provider.price_history(args.tbill_symbol)
+        if len(tbill) == 0:
+            print(f"FAIL: no data for T-bill symbol {args.tbill_symbol}")
+            return 1
+        print(f"T-bill {args.tbill_symbol}: {tbill.index[0].date()} -> {tbill.index[-1].date()}")
+        # Annualised percent yield -> per-trading-day accrual (ACT/252
+        # approximation; sensitivity-grade, not a money-market model).
+        cash_yield_daily = (tbill["Close"].reindex(index_daily.index).ffill()
+                            / 100.0 / 252.0).fillna(0.0)
+
+    if args.sim_end:
+        end = pd.Timestamp(args.sim_end)
+        index_daily = index_daily.loc[:end]
+        panels = {s: df.loc[:end] for s, df in panels.items()}
+        print(f"Design-segment truncation: all series cut at {end.date()}")
+
     p = WeeklyParams(entry_at=args.entry_at, cost_bps_side=args.cost_bps_side,
-                     time_stop_weeks=args.time_stop_weeks)
-    trades, equity, summary = simulate(panels, memberships, index_daily, p)
+                     time_stop_weeks=args.time_stop_weeks,
+                     rsi_threshold=args.rsi_threshold, target_pct=args.target_frac,
+                     dip_trigger=args.dip_trigger, ranking=args.ranking,
+                     regime_gate=args.regime_gate, regime_off_exit=args.regime_off_exit,
+                     monitor=args.monitor, price_filter_basis=args.price_basis,
+                     sim_start=args.sim_start)
+    trades, equity, summary = simulate(panels, memberships, index_daily, p,
+                                       unadj_panels=unadj_panels or None,
+                                       breadth_daily=breadth_daily,
+                                       cash_yield_daily=cash_yield_daily)
     summary["symbols_loaded"] = len(panels)
     summary["symbols_failed"] = len(failed)
+    summary["sim_end"] = args.sim_end
+    if failed:
+        summary["failed_examples"] = failed[:10]
 
     out_dir = root / "data"
     out_dir.mkdir(exist_ok=True)

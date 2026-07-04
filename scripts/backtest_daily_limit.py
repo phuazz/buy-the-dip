@@ -48,11 +48,20 @@ class DailyLimitParams:
     min_history: int = 210
     initial_capital: float = 100_000.0
     min_cash_frac: float = 0.02
+    # -- registered alternates / sensitivities and full-history controls --
+    min_dollar_vol: float = 0.0      # registered alternate 6; off in v1
+    dollar_vol_days: int = 63
+    fill_model: str = "min_open_limit"   # | "strict_touch" | "at_limit"
+    target_touch: str = "gte"            # | "gt" (require high strictly above target)
+    price_filter_basis: str = "unadjusted"  # the "$5" screen reads actual traded prices
+    sim_start: str | None = None     # no order placement or equity records before this date
 
 
 def precompute_symbol_daily(daily: pd.DataFrame, membership_daily: pd.Series,
-                            p: DailyLimitParams) -> pd.DataFrame:
+                            p: DailyLimitParams,
+                            unadj: pd.DataFrame | None = None) -> pd.DataFrame:
     """Signal/level columns on the symbol's own daily index."""
+    from scripts.backtest_weekly import _price_filter_series
     out = daily.copy()
     close = out["Close"]
     atr = indicators.wilder_atr(out["High"], out["Low"], close, p.atr_period)
@@ -63,12 +72,19 @@ def precompute_symbol_daily(daily: pd.DataFrame, membership_daily: pd.Series,
     out["ret1"] = close / out["prev_close"] - 1.0
     member = membership_daily.reindex(out.index).ffill().fillna(0).astype(bool)
     warm = pd.Series(np.arange(len(out)) >= p.min_history, index=out.index)
+    ref_close, ref_volume = _price_filter_series(daily, p, unadj)
+    liquidity_ok = pd.Series(True, index=out.index)
+    if p.min_dollar_vol > 0:
+        dollar_vol = (ref_close * ref_volume).rolling(
+            p.dollar_vol_days, min_periods=min(p.dollar_vol_days, 21)).median()
+        liquidity_ok = dollar_vol.fillna(0) > p.min_dollar_vol
     out["signal"] = (
         member
         & (close > indicators.sma(close, p.trend_sma))
         & (out["ret1"] <= -p.drop_pct / 100.0)
         & (out["natr_pct"] > p.natr_min_pct)
-        & (close > p.min_price)
+        & (ref_close > p.min_price)
+        & liquidity_ok
         & warm
     )
     out["limit_px"] = close - p.entry_atr_mult * atr
@@ -106,10 +122,15 @@ def _close_position(pos: _Position, exit_px: float, exit_date: pd.Timestamp,
 
 
 def simulate(panels: dict, memberships: dict, index_daily: pd.DataFrame,
-             p: DailyLimitParams) -> tuple:
+             p: DailyLimitParams, unadj_panels: dict | None = None) -> tuple:
     """Daily event loop. Returns (trades DataFrame, equity DataFrame, summary)."""
+    if p.fill_model not in ("min_open_limit", "strict_touch", "at_limit"):
+        raise ValueError(f"Unknown fill_model {p.fill_model!r}")
+    if p.target_touch not in ("gte", "gt"):
+        raise ValueError(f"Unknown target_touch {p.target_touch!r}")
     cost_side = p.cost_bps_side / 1e4
     calendar = index_daily.index
+    sim_start = pd.Timestamp(p.sim_start) if p.sim_start else None
 
     pre = {}
     daily_row = {}
@@ -117,7 +138,8 @@ def simulate(panels: dict, memberships: dict, index_daily: pd.DataFrame,
     for sym, df in panels.items():
         if len(df) == 0:
             continue
-        pre[sym] = precompute_symbol_daily(df, memberships[sym], p)
+        unadj = None if unadj_panels is None else unadj_panels.get(sym)
+        pre[sym] = precompute_symbol_daily(df, memberships[sym], p, unadj)
         daily_row[sym] = {ts: i for i, ts in enumerate(df.index)}
         last_bar[sym] = df.index[-1]
 
@@ -146,10 +168,12 @@ def simulate(panels: dict, memberships: dict, index_daily: pd.DataFrame,
             o, h, c = float(row["Open"]), float(row["High"]), float(row["Close"])
             pos.bars_held += 1
             tgt = row["target_px"]
+            intraday_hit = pd.notna(tgt) and (h > float(tgt) if p.target_touch == "gt"
+                                              else h >= float(tgt))
             if pd.notna(tgt) and o >= float(tgt):
                 cash += _close_position(pos, o, d, "target_gap", cost_side, trades)
                 del positions[sym]; marks.pop(sym, None)
-            elif pd.notna(tgt) and h >= float(tgt):
+            elif intraday_hit:
                 cash += _close_position(pos, float(tgt), d, "target", cost_side, trades)
                 del positions[sym]; marks.pop(sym, None)
             elif pd.notna(row["prev_high"]) and c > float(row["prev_high"]):
@@ -171,10 +195,11 @@ def simulate(panels: dict, memberships: dict, index_daily: pd.DataFrame,
             row = w.iloc[i]
             o, h, l, c = (float(row["Open"]), float(row["High"]),
                           float(row["Low"]), float(row["Close"]))
-            if l > limit_px or cash <= 0:
+            touched = l < limit_px if p.fill_model == "strict_touch" else l <= limit_px
+            if not touched or cash <= 0:
                 orders_expired += 1
                 continue
-            fill_px = min(o, limit_px)
+            fill_px = limit_px if p.fill_model == "at_limit" else min(o, limit_px)
             usable = min(size, cash / (1.0 + cost_side))
             shares = usable / fill_px
             basis = shares * fill_px * (1.0 + cost_side)
@@ -195,6 +220,8 @@ def simulate(panels: dict, memberships: dict, index_daily: pd.DataFrame,
                        for s in positions)
         equity_now = cash + invested
         free = p.max_positions - len(positions)
+        if sim_start is not None and d < sim_start:
+            free = 0  # design segment not yet open: no orders, but exits above still run
         if free > 0 and cash >= p.min_cash_frac * equity_now:
             candidates = []
             for sym, w in pre.items():
@@ -210,8 +237,9 @@ def simulate(panels: dict, memberships: dict, index_daily: pd.DataFrame,
             for _, sym, limit_px in candidates[:free]:
                 orders[sym] = (limit_px, p.position_frac * equity_now)
 
-        equity_rows.append({"date": d, "equity": equity_now,
-                            "invested_frac": invested / equity_now if equity_now > 0 else 0.0})
+        if sim_start is None or d >= sim_start:
+            equity_rows.append({"date": d, "equity": equity_now,
+                                "invested_frac": invested / equity_now if equity_now > 0 else 0.0})
 
     trades_df = pd.DataFrame(trades)
     if len(trades_df):
@@ -239,6 +267,21 @@ def main(argv=None) -> int:
     ap.add_argument("--drop-pct", type=float, default=3.0)
     ap.add_argument("--entry-atr-mult", type=float, default=0.9)
     ap.add_argument("--target-atr-mult", type=float, default=0.5)
+    ap.add_argument("--max-positions", type=int, default=10,
+                    help="Registered plateau: 5 / 10 / 20")
+    ap.add_argument("--min-dollar-vol", type=float, default=0.0,
+                    help="Registered alternate 6: median 63d dollar-volume screen (0 = off, v1)")
+    ap.add_argument("--fill-model", choices=["min_open_limit", "strict_touch", "at_limit"],
+                    default="min_open_limit",
+                    help="Registered fill-model sensitivity")
+    ap.add_argument("--target-touch", choices=["gte", "gt"], default="gte",
+                    help="Registered sensitivity: require high strictly above target")
+    ap.add_argument("--price-basis", choices=["unadjusted", "adjusted"], default="unadjusted",
+                    help="Series read by the $5 price and dollar-volume screens")
+    ap.add_argument("--sim-start", default=None,
+                    help="No order placement or equity records before this date (design segment)")
+    ap.add_argument("--sim-end", default=None,
+                    help="Truncate all series at this date (design segment)")
     ap.add_argument("--max-symbols", type=int, default=None)
     ap.add_argument("--cache-dir", default="data/cache/norgate_totalreturn_ndx100",
                     help="Kept separate from the S&P 500 cache: membership files are index-specific")
@@ -249,7 +292,7 @@ def main(argv=None) -> int:
 
     root = Path(__file__).resolve().parents[1]
     from scripts.providers import get_provider  # noqa: E402
-    from scripts.backtest_baseline import _load_symbol  # noqa: E402
+    from scripts.backtest_baseline import _load_symbol, _load_unadjusted  # noqa: E402
 
     provider = get_provider("norgate", index_name=args.index_name,
                             adjustment=args.adjustment, start_date=args.fetch_start) \
@@ -270,12 +313,15 @@ def main(argv=None) -> int:
           f"{index_daily.index[0].date()} -> {index_daily.index[-1].date()}")
 
     cache_dir = root / args.cache_dir
-    panels, memberships = {}, {}
+    panels, memberships, unadj_panels = {}, {}, {}
     failed = []
     for k, sym in enumerate(symbols, 1):
         try:
             prices, member = _load_symbol(provider, sym, cache_dir, refresh=args.refresh_cache)
             if len(prices):
+                if args.price_basis == "unadjusted":
+                    unadj_panels[sym] = _load_unadjusted(provider, sym, cache_dir,
+                                                         refresh=args.refresh_cache)
                 panels[sym] = prices
                 memberships[sym] = member
         except Exception as exc:
@@ -289,12 +335,26 @@ def main(argv=None) -> int:
         assert_cache_depth(index_daily.index[0],
                            min(df.index[0] for df in panels.values()))
 
+    if args.sim_end:
+        end = pd.Timestamp(args.sim_end)
+        index_daily = index_daily.loc[:end]
+        panels = {s: df.loc[:end] for s, df in panels.items()}
+        print(f"Design-segment truncation: all series cut at {end.date()}")
+
     p = DailyLimitParams(cost_bps_side=args.cost_bps_side, natr_min_pct=args.natr_min_pct,
                          drop_pct=args.drop_pct, entry_atr_mult=args.entry_atr_mult,
-                         target_atr_mult=args.target_atr_mult)
-    trades, equity, summary = simulate(panels, memberships, index_daily, p)
+                         target_atr_mult=args.target_atr_mult,
+                         max_positions=args.max_positions,
+                         min_dollar_vol=args.min_dollar_vol,
+                         fill_model=args.fill_model, target_touch=args.target_touch,
+                         price_filter_basis=args.price_basis, sim_start=args.sim_start)
+    trades, equity, summary = simulate(panels, memberships, index_daily, p,
+                                       unadj_panels=unadj_panels or None)
     summary["symbols_loaded"] = len(panels)
     summary["symbols_failed"] = len(failed)
+    summary["sim_end"] = args.sim_end
+    if failed:
+        summary["failed_examples"] = failed[:10]
 
     out_dir = root / "data"
     out_dir.mkdir(exist_ok=True)
