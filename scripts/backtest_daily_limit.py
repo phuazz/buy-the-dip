@@ -55,6 +55,12 @@ class DailyLimitParams:
     target_touch: str = "gte"            # | "gt" (require high strictly above target)
     price_filter_basis: str = "unadjusted"  # the "$5" screen reads actual traded prices
     sim_start: str | None = None     # no order placement or equity records before this date
+    # Pre-registered interpretation convention 3 places orders only for free
+    # slots ("free_slots"). "all_signals" places an order for every signal and
+    # enforces capacity at fill time (highest NATR first) — the anchor-miss
+    # investigation variant: slot rationing at placement forfeits fills in
+    # exactly the volatility clusters the model monetises.
+    order_placement: str = "free_slots"  # | "all_signals"
 
 
 def precompute_symbol_daily(daily: pd.DataFrame, membership_daily: pd.Series,
@@ -128,6 +134,8 @@ def simulate(panels: dict, memberships: dict, index_daily: pd.DataFrame,
         raise ValueError(f"Unknown fill_model {p.fill_model!r}")
     if p.target_touch not in ("gte", "gt"):
         raise ValueError(f"Unknown target_touch {p.target_touch!r}")
+    if p.order_placement not in ("free_slots", "all_signals"):
+        raise ValueError(f"Unknown order_placement {p.order_placement!r}")
     cost_side = p.cost_bps_side / 1e4
     calendar = index_daily.index
     sim_start = pd.Timestamp(p.sim_start) if p.sim_start else None
@@ -185,8 +193,12 @@ def simulate(panels: dict, memberships: dict, index_daily: pd.DataFrame,
             else:
                 marks[sym] = c
 
-        # 2. Fill (or expire) today's one-day limit orders.
+        # 2. Fill (or expire) today's one-day limit orders. Placement order is
+        # NATR-descending, so capacity at fill time keeps that priority.
         for sym, (limit_px, size) in list(orders.items()):
+            if len(positions) >= p.max_positions:
+                orders_expired += 1
+                continue
             w = pre[sym]
             i = daily_row[sym].get(d)
             if i is None or d > last_bar[sym]:
@@ -215,14 +227,19 @@ def simulate(panels: dict, memberships: dict, index_daily: pd.DataFrame,
                 marks[sym] = c
         orders = {}
 
-        # 3. Place orders for tomorrow: free slots only, highest NATR first.
+        # 3. Place orders for tomorrow, highest NATR first. Convention 3
+        # ("free_slots", pre-registered) rations placement to free slots;
+        # "all_signals" orders every signal and lets fill-time capacity bind.
         invested = sum(positions[s].shares * marks.get(s, positions[s].entry_px)
                        for s in positions)
         equity_now = cash + invested
         free = p.max_positions - len(positions)
         if sim_start is not None and d < sim_start:
             free = 0  # design segment not yet open: no orders, but exits above still run
-        if free > 0 and cash >= p.min_cash_frac * equity_now:
+        elif p.order_placement == "all_signals":
+            free = len(pre)  # capacity binds at fill time instead
+        if free > 0 and (p.order_placement == "all_signals"
+                         or cash >= p.min_cash_frac * equity_now):
             candidates = []
             for sym, w in pre.items():
                 if sym in positions:
@@ -278,6 +295,10 @@ def main(argv=None) -> int:
                     help="Registered sensitivity: require high strictly above target")
     ap.add_argument("--price-basis", choices=["unadjusted", "adjusted"], default="unadjusted",
                     help="Series read by the $5 price and dollar-volume screens")
+    ap.add_argument("--order-placement", choices=["free_slots", "all_signals"],
+                    default="free_slots",
+                    help="free_slots = pre-registered convention 3; all_signals = "
+                         "anchor-miss investigation variant (capacity binds at fill)")
     ap.add_argument("--sim-start", default=None,
                     help="No order placement or equity records before this date (design segment)")
     ap.add_argument("--sim-end", default=None,
@@ -347,7 +368,8 @@ def main(argv=None) -> int:
                          max_positions=args.max_positions,
                          min_dollar_vol=args.min_dollar_vol,
                          fill_model=args.fill_model, target_touch=args.target_touch,
-                         price_filter_basis=args.price_basis, sim_start=args.sim_start)
+                         price_filter_basis=args.price_basis,
+                         order_placement=args.order_placement, sim_start=args.sim_start)
     trades, equity, summary = simulate(panels, memberships, index_daily, p,
                                        unadj_panels=unadj_panels or None)
     summary["symbols_loaded"] = len(panels)

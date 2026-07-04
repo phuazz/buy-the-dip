@@ -93,5 +93,26 @@ carry no evidential weight for the strategy.
   usage 52.97% (regime warm-up truncates the tradeable window). Full output in
   `data/weekly_summary.json`. These numbers carry no evidential weight.
 
+## Validation record (single pass, executed 2026-07-04)
+
+Per protocol: the primary plus two design-segment shortlisted alternates —
+dip trigger (c) "below the 8-week high" (design Sharpe 1.02) and its
+combination with the breadth regime gate (design Sharpe 1.10) — run once on
+2018-01 → 2026-07 (data end), with no iteration on the results.
+
+| configuration | ROR p.a. | Sharpe | MaxDD | PF | win% | trades/yr |
+|---|---|---|---|---|---|---|
+| v1 primary | 5.41% | 0.548 | −17.2% | 1.42 | 50.8 | 22.3 |
+| below_high | 4.87% | 0.479 | −23.4% | 1.30 | 48.4 | 25.1 |
+| below_high + breadth | 5.06% | 0.498 | −20.6% | 1.32 | 49.0 | 23.6 |
+
+**Decision gates (Sharpe ≥ 0.7, MaxDD ≥ −25%, PF ≥ 1.5, 15-25 trades/yr):
+FAILED for all three configurations** (MaxDD and trade rate passed; Sharpe
+and profit factor did not). The design-segment ranking inverted
+out-of-sample — the unmodified primary validated best. Decision per this
+pre-registration: **the variant is not taken forward**; the validation
+segment is closed; any successor idea requires a fresh pre-registration.
+Full battery, slices and discussion in the filed review and README status.
+
 *Pre-registered 2026-07-03. Any edit after full-history data exists must be
 logged as a deviation.*

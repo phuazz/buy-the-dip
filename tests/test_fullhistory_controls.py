@@ -429,6 +429,42 @@ def test_target_touch_gt_requires_strict_high():
                     and t2["exit_date"] == touch_day.date().isoformat())
 
 
+def test_all_signals_placement_uses_capacity_freed_by_exits():
+    # A holds the only slot when B signals. Under the pre-registered
+    # free_slots convention B never gets an order; under all_signals the
+    # order exists and fills after A's exit releases the slot that morning.
+    a = _dframe()
+    limit_a, _ = _dlevels(a, _dparams())
+    a.loc[DCAL[DIP + 1], "Low"] = float(limit_a.iloc[DIP]) - 0.5      # A fills day 15
+    _, target_a = _dlevels(a, _dparams())
+    a.loc[DCAL[DIP + 2], "Open"] = float(target_a.iloc[DIP + 2]) + 1.0  # A gap-target exit day 16
+
+    b_closes = np.concatenate([np.full(11, 100.0), np.full(4, 120.0), [115.2],
+                               np.full(len(DCAL) - 16, 115.0)])
+    b = _dframe(closes=b_closes)                                      # B signals day 15
+    limit_b, _ = _dlevels(b, _dparams())
+    b.loc[DCAL[DIP + 2], "Low"] = float(limit_b.iloc[DIP + 1]) - 0.5  # B fillable day 16
+
+    panels = {"AAA": a, "BBB": b}
+    members = {s: _ones(df.index) for s, df in panels.items()}
+
+    p = _dparams(max_positions=1)
+    trades, _, summary = simulate_daily(panels, members, DINDEX, p)
+    filled = set(trades["symbol"]) | set(summary["open_positions_at_end"])
+    assert "BBB" not in filled                                        # rationed out
+
+    p_all = _dparams(max_positions=1, order_placement="all_signals")
+    trades2, _, summary2 = simulate_daily(panels, members, DINDEX, p_all)
+    filled2 = set(trades2["symbol"]) | set(summary2["open_positions_at_end"])
+    assert {"AAA", "BBB"} <= filled2
+    a_exit = trades2[trades2["symbol"] == "AAA"].iloc[0]
+    assert a_exit["exit_reason"] == "target_gap"
+    b_entry = (trades2[trades2["symbol"] == "BBB"].iloc[0]["entry_date"]
+               if (trades2["symbol"] == "BBB").any() else None)
+    if b_entry is not None:
+        assert b_entry == DCAL[DIP + 2].date().isoformat()            # fills the exit day
+
+
 def test_min_dollar_vol_screen_blocks_illiquid_names():
     df = _dframe()
     liquid = precompute_symbol_daily(

@@ -125,5 +125,41 @@ no evidential weight.
   storage) — the exact opposite of the Phase 2 weekly book, as designed.
   Full output in `data/daily_limit_summary.json`. No evidential weight.
 
+## Replication record (full window, executed 2026-07-04)
+
+Design segment 1994-2017 first: primary 10.6% p.a. / Sharpe 1.07 / MaxDD
+−13.2% / usage 7.7% / 68.5% winners; every registered dial sits on a flat or
+defensibly-shaped plateau around the source defaults (entry depth is the one
+cliff and 0.9 × ATR is on the right side of it). Calendar/benchmark is $NDX
+— $NDXTR only starts 1999-03 (logged convention).
+
+**Anchor comparison on the source window (1994-01 → 2025-01), pre-registered
+conventions:** CAGR 9.84% vs 19.17%, usage 7.32% vs ~13.9%, MaxDD −13.19%
+vs −22.55% — **acceptance gate FAILED on CAGR and usage** (MaxDD outside
+tolerance in the favourable direction), with per-trade statistics squarely
+in family (68.4% winners, PF 1.85) — a participation-shaped miss.
+
+**Investigation per the registered order (fill model first):** interpretation
+convention 2/3's order rationing — we place limit orders only for free slots
+— forfeits fills in exactly the volatility clusters the model monetises. An
+`all_signals` placement variant (order every signal; capacity binds at fill,
+highest NATR first; logged as a deviation from the registered convention)
+moves the anchor-window result to **CAGR 15.37% / usage 9.27% / MaxDD
+−15.68%** (Sharpe 1.14, 69.1% winners, PF 1.90) — the placement convention
+explains roughly 60% of the CAGR gap and half the usage gap. Gate still
+narrowly missed (−3.8 CAGR points vs ±3; −4.6 usage points vs ±4).
+
+Residual attribution (not resolvable from the disclosures): the source's
+form runs fixed $10,000 capital — a non-compounding engine's "annual return"
+is plausibly simple annualisation, which reads above compound CAGR for a
+profitable strategy; their cost model is undisclosed (our 7 bps/side costs
+~1 CAGR point vs 3 bps). Verdict recorded as: **anchors not replicated within
+gate tolerances; dominant driver identified and quantified; residual
+attributed to engine/metric conventions the source does not disclose; the
+strategy's character (win rate, exit mix, low usage, shallow drawdown)
+replicates cleanly.** The free-slots convention remains the conservative
+deployable reading; all_signals is the faithful reading of the source's
+backtester.
+
 *Pre-registered 2026-07-03. Any edit after full-history data exists must be
 logged as a deviation.*
